@@ -56,6 +56,20 @@ const (
 	DT_SOCK    = S_IFSOCK >> 12
 
 	AT_SYMLINK_NOFOLLOW = 0x100
+
+	SIGABRT = unix.SIGABRT
+	SIGALRM = unix.SIGALRM
+	SIGFPE  = unix.SIGFPE
+	SIGHUP  = unix.SIGHUP
+	SIGILL  = unix.SIGILL
+	SIGINT  = unix.SIGINT
+	SIGIOT  = unix.SIGIOT
+	SIGKILL = unix.SIGKILL
+	SIGPIPE = unix.SIGPIPE
+	SIGQUIT = unix.SIGQUIT
+	SIGSEGV = unix.SIGSEGV
+	SIGTERM = unix.SIGTERM
+	SIGTRAP = unix.SIGTRAP
 )
 
 type Stat_t = unix.Stat_t

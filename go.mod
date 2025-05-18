@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.24.2
 
 require (
+	bazil.org/fuse v0.0.0-20230120002735-62a210ff1fd5 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect

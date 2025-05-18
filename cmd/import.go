@@ -30,4 +30,9 @@ func main() {
 		}
 	}
 	fmt.Printf("imported path to %s\n", hcas.NameHex(name))
+
+	err = session.SetLabel("image", os.Args[2], name)
+	if err != nil {
+		log.Fatal("Could not set label: ", err)
+	}
 }
