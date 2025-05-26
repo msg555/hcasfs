@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
-	"os"
 	"io"
+	"os"
 	"sort"
 
 	"github.com/go-errors/errors"
@@ -27,11 +27,11 @@ type InodeData struct {
 }
 
 type DirEntry struct {
-	Inode						 InodeData
+	Inode            InodeData
 	FileName         string
 	ChildDeps        uint64
 	FileNameChecksum uint32
-	ParentDepIndex uint64
+	ParentDepIndex   uint64
 }
 
 func readAll(stream io.Reader, buf []byte) error {
@@ -264,15 +264,15 @@ func importDirectory(hs hcas.Session, fd int) ([]byte, uint64, error) {
 			}
 
 			dirEntry := DirEntry{
-				Inode: InodeData {
-					Mode:      childSt.Mode,
-					Uid:       childSt.Uid,
-					Gid:       childSt.Gid,
-					Dev:       0,
-					Atim:      uint64(childSt.Atim.Nano()),
-					Mtim:      uint64(childSt.Mtim.Nano()),
-					Ctim:      uint64(childSt.Ctim.Nano()),
-					Size:      uint64(childSt.Size),
+				Inode: InodeData{
+					Mode: childSt.Mode,
+					Uid:  childSt.Uid,
+					Gid:  childSt.Gid,
+					Dev:  0,
+					Atim: uint64(childSt.Atim.Nano()),
+					Mtim: uint64(childSt.Mtim.Nano()),
+					Ctim: uint64(childSt.Ctim.Nano()),
+					Size: uint64(childSt.Size),
 				},
 				FileName:  fileName,
 				ChildDeps: childDeps,
@@ -351,13 +351,13 @@ func ImportPath(hs hcas.Session, path string) ([]byte, error) {
 
 func LookupChild(dirData io.ReadSeeker, name string) (dirEntry *DirEntry, err error) {
 	/* Return the DirEntry associated with the given name if it exists. If no
-   * entry with matching name is found the returned *DirEntry will be nil as
-   * well as the error.
-   *
-	 * A lot of potential optimization to make here. Caching, better collision
-	 * behavior, better hashing (e.g. use dynamic salt), directory could indicate
-	 * if there _are_ collisions, etc...
-   */
+	   * entry with matching name is found the returned *DirEntry will be nil as
+	   * well as the error.
+	   *
+		 * A lot of potential optimization to make here. Caching, better collision
+		 * behavior, better hashing (e.g. use dynamic salt), directory could indicate
+		 * if there _are_ collisions, etc...
+	*/
 
 	var header [16]byte
 	err = readAll(dirData, header[:])
@@ -389,12 +389,12 @@ func LookupChild(dirData io.ReadSeeker, name string) (dirEntry *DirEntry, err er
 			return
 		}
 
-		ind = lo + uint32(1.0 * (crc - loCrc) / (hiCrc - loCrc) * (hi - lo))
+		ind = lo + uint32(1.0*(crc-loCrc)/(hiCrc-loCrc)*(hi-lo))
 		if ind == hi {
 			ind -= 1
 		}
 
-		_, err = dirData.Seek(int64(headerOffset + 8 *	ind), 0)
+		_, err = dirData.Seek(int64(headerOffset+8*ind), 0)
 		if err != nil {
 			return
 		}
@@ -438,7 +438,7 @@ func LookupChild(dirData io.ReadSeeker, name string) (dirEntry *DirEntry, err er
 
 	crcMatch := func(index uint32, needSeek bool) (bool, error) {
 		if needSeek {
-			_, err := dirData.Seek(int64(headerOffset + 8 * index), 0)
+			_, err := dirData.Seek(int64(headerOffset+8*index), 0)
 			if err != nil {
 				return false, err
 			}
@@ -462,7 +462,7 @@ func LookupChild(dirData io.ReadSeeker, name string) (dirEntry *DirEntry, err er
 
 	for testInd := ind + 1; testInd < hi; testInd++ {
 		var match bool
-		match, err = crcMatch(testInd, testInd == ind + 1)
+		match, err = crcMatch(testInd, testInd == ind+1)
 		if err != nil {
 			return
 		} else if !match {
