@@ -23,7 +23,6 @@ type InodeData struct {
 	Mtim    uint64
 	Ctim    uint64
 	Size    uint64
-	ParentDepIndex uint64
 	ObjName [32]byte
 }
 
@@ -32,6 +31,7 @@ type DirEntry struct {
 	FileName         string
 	ChildDeps        uint64
 	FileNameChecksum uint32
+	ParentDepIndex uint64
 }
 
 func readAll(stream io.Reader, buf []byte) error {
@@ -57,8 +57,8 @@ func (d *DirEntry) Encode() []byte {
 	binary.BigEndian.PutUint64(buf[28:], d.Inode.Mtim)
 	binary.BigEndian.PutUint64(buf[36:], d.Inode.Ctim)
 	binary.BigEndian.PutUint64(buf[44:], d.Inode.Size)
-	binary.BigEndian.PutUint64(buf[52:], d.Inode.ParentDepIndex)
-	copy(buf[60:], d.Inode.ObjName[:])
+	copy(buf[52:], d.Inode.ObjName[:])
+	binary.BigEndian.PutUint64(buf[84:], d.ParentDepIndex)
 	binary.BigEndian.PutUint32(buf[92:], uint32(len(d.FileName)))
 	copy(buf[96:], d.FileName)
 	return buf
@@ -79,8 +79,8 @@ func (d *DirEntry) DecodeStream(stream io.Reader) error {
 	d.Inode.Mtim = binary.BigEndian.Uint64(buf[28:])
 	d.Inode.Ctim = binary.BigEndian.Uint64(buf[36:])
 	d.Inode.Size = binary.BigEndian.Uint64(buf[44:])
-	d.Inode.ParentDepIndex = binary.BigEndian.Uint64(buf[52:])
-	copy(d.Inode.ObjName[:], buf[60:])
+	copy(d.Inode.ObjName[:], buf[52:])
+	d.ParentDepIndex = binary.BigEndian.Uint64(buf[84:])
 	fileNameLen := binary.BigEndian.Uint32(buf[92:])
 
 	fileName := make([]byte, fileNameLen)
@@ -278,7 +278,7 @@ func importDirectory(hs hcas.Session, fd int) ([]byte, uint64, error) {
 				ChildDeps: childDeps,
 			}
 			copy(dirEntry.Inode.ObjName[:], childObjName)
-			totalChildDeps += childDeps
+			totalChildDeps += childDeps + 1
 			if childObjName != nil {
 				directDeps = append(directDeps, childObjName)
 			}
@@ -296,6 +296,12 @@ func importDirectory(hs hcas.Session, fd int) ([]byte, uint64, error) {
 	sort.Slice(dirEntries, func(i, j int) bool {
 		return dirEntries[i].FileNameChecksum < dirEntries[j].FileNameChecksum
 	})
+
+	var parentOffset uint64 = 1
+	for i := range dirEntries {
+		dirEntries[i].ParentDepIndex = parentOffset
+		parentOffset += dirEntries[i].ChildDeps + 1
+	}
 
 	headerSize := 16 + len(dirEntries)*8
 	dataOut := make([]byte, headerSize, headerSize+len(dirEntries)*88)
@@ -343,7 +349,7 @@ func ImportPath(hs hcas.Session, path string) ([]byte, error) {
 	return name, err
 }
 
-func LookupChild(dirData io.ReadSeeker, name string) (dirEntry *DirEntry, nodeOffset uint64, err error) {
+func LookupChild(dirData io.ReadSeeker, name string) (dirEntry *DirEntry, err error) {
 	/* Return the DirEntry associated with the given name if it exists. If no
    * entry with matching name is found the returned *DirEntry will be nil as
    * well as the error.

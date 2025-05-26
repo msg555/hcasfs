@@ -47,12 +47,19 @@ type FileHandleDir struct {
 	currentSeek uint32
 }
 
+type InodeReference struct {
+	Inode hcasfs.InodeData
+	RefCount int64
+}
+
 type HcasMount struct {
 	conn *fuse.Conn
 	mountPoint string
 	hcasDataDir string
 	rootInode hcasfs.InodeData
-	rootName []byte
+
+  inodeLock   sync.RWMutex
+	inodeMap   map[fuse.NodeID]*InodeReference
 
   handleLock   sync.RWMutex
   handleMap    map[fuse.HandleID]FileHandle
@@ -65,7 +72,15 @@ func CreateServer(
 	rootName []byte,
 	options ...fuse.MountOption,
 ) (*HcasMount, error) {
+	options = append(options, fuse.Subtype("hcasfs"), fuse.DefaultPermissions())
 	options = append(options, fuse.Subtype("hcasfs"), fuse.ReadOnly())
+	options = append(options, fuse.Subtype("hcasfs"), fuse.CacheSymlinks())
+	options = append(options, fuse.Subtype("hcasfs"), fuse.Subtype("hcasfs"))
+
+	// Want to enable kernel_cache but there's no option defined in fuse package
+
+	// Not sure exactly what this is but sounds relevant
+	// options = append(options, fuse.Subtype("hcasfs"), fuse.ExplicitInvalidateData())
 
 	conn, err := fuse.Mount(mountPoint, options...)
 	if err != nil {
@@ -76,12 +91,17 @@ func CreateServer(
 		conn: conn,
 		mountPoint: mountPoint,
 		hcasDataDir: filepath.Join(hcasRootDir, hcas.DataPath),
-		rootInode: hcasfs.InodeData{
-			Mode: unix.S_IFDIR | 0o777,
-		},
+		inodeMap: make(map[fuse.NodeID]*InodeReference),
 		handleMap: make(map[fuse.HandleID]FileHandle),
 	}
-	copy(hcasMount.rootInode.ObjName[:], rootName)
+	rootNode := InodeReference{
+		Inode: hcasfs.InodeData{
+			Mode: unix.S_IFDIR | 0o777,
+		},
+		RefCount: 1,
+	}
+	copy(rootNode.Inode.ObjName[:], rootName)
+	hcasMount.inodeMap[1] = &rootNode
 
 	go func() {
 		err := hcasMount.serve()
@@ -118,6 +138,10 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
     err = hm.handleStatfsRequest(req.(*fuse.StatfsRequest))
 
   // Node methods
+  case *fuse.ForgetRequest:
+    err = hm.handleForgetRequest(req.(*fuse.ForgetRequest))
+  case *fuse.BatchForgetRequest:
+    err = hm.handleBatchForgetRequest(req.(*fuse.BatchForgetRequest))
   case *fuse.AccessRequest:
     err = hm.handleAccessRequest(req.(*fuse.AccessRequest))
   case *fuse.LookupRequest:
@@ -126,9 +150,9 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
     err = hm.handleOpenRequest(req.(*fuse.OpenRequest))
   case *fuse.GetattrRequest:
     err = hm.handleGetattrRequest(req.(*fuse.GetattrRequest))
-/*
   case *fuse.ReadlinkRequest:
     err = hm.handleReadlinkRequest(req.(*fuse.ReadlinkRequest))
+/*
   case *fuse.ListxattrRequest:
     err = hm.handleListxattrRequest(req.(*fuse.ListxattrRequest))
   case *fuse.GetxattrRequest:
@@ -212,11 +236,30 @@ func (hm *HcasMount) openFileByName(name []byte) (*os.File, error) {
 }
 
 func (hm *HcasMount) getInode(inode fuse.NodeID) (*hcasfs.InodeData, error) {
-	if inode != 1 {
-		return nil, errors.New("Only support inode 1 for now")
+	hm.inodeLock.RLock()
+	defer hm.inodeLock.RUnlock()
+
+	nod, ok := hm.inodeMap[inode]
+	if !ok {
+		return nil, errors.New("Unknown inode")
 	}
 
-	return &hm.rootInode, nil
+	return &nod.Inode, nil
+}
+
+func (hm *HcasMount) trackInode(inodeId fuse.NodeID, inodeData *hcasfs.InodeData) {
+	hm.inodeLock.Lock()
+	defer hm.inodeLock.Unlock()
+
+	nod, ok := hm.inodeMap[inodeId]
+	if ok {
+		nod.RefCount += 1
+	} else {
+		hm.inodeMap[inodeId] = &InodeReference{
+			Inode: *inodeData,
+			RefCount: 1,
+		}
+	}
 }
 
 func (hm *HcasMount) handleAccessRequest(req *fuse.AccessRequest) error {
@@ -236,14 +279,14 @@ func (hm *HcasMount) handleAccessRequest(req *fuse.AccessRequest) error {
   return nil
 }
 
-func inodeAttr(inodeId uint64, inode *hcasfs.InodeData) fuse.Attr {
+func inodeAttr(inodeId fuse.NodeID, inode *hcasfs.InodeData) fuse.Attr {
   size := inode.Size
   if unix.S_ISDIR(inode.Mode) {
     size = 1024
   }
 	return fuse.Attr{
     Valid:     DURATION_DEFAULT, // Check this out
-    Inode:     inodeId,
+    Inode:     uint64(inodeId),
     Size:      size,
     Blocks:    (size + 511) >> 9, // This looks wrong? Was there a reason this is not 1024 alignted?
     Atime:     nsTimestampToTime(inode.Atim),
@@ -258,6 +301,48 @@ func inodeAttr(inodeId uint64, inode *hcasfs.InodeData) fuse.Attr {
   }
 }
 
+func (hm *HcasMount) handleForgetRequest(req *fuse.ForgetRequest) error {
+	hm.inodeLock.Lock()
+	nod, ok := hm.inodeMap[req.Node]
+	if !ok {
+		fmt.Printf("Batch forget on unknown inode\n")
+		return nil
+	}
+	nod.RefCount -= int64(req.N)
+	if nod.RefCount < 0 {
+		fmt.Printf("Negative inode ref count\n")
+	}
+	if nod.RefCount <= 0 {
+		delete(hm.inodeMap, req.Node)
+	}
+	hm.inodeLock.Unlock()
+
+	req.Respond()
+	return nil
+}
+
+func (hm *HcasMount) handleBatchForgetRequest(req *fuse.BatchForgetRequest) error {
+	hm.inodeLock.Lock()
+	for _, forget := range req.Forget {
+		nod, ok := hm.inodeMap[forget.NodeID]
+		if ! ok {
+			fmt.Printf("Batch forget on unknown inode\n")
+			continue
+		}
+		nod.RefCount -= int64(forget.N)
+		if nod.RefCount < 0 {
+			fmt.Printf("Negative inode ref count\n")
+		}
+		if nod.RefCount <= 0 {
+			delete(hm.inodeMap, forget.NodeID)
+		}
+	}
+	hm.inodeLock.Unlock()
+
+	req.Respond()
+	return nil
+}
+
 func (hm *HcasMount) handleLookupRequest(req *fuse.LookupRequest) error {
 	inode, err := hm.getInode(req.Node)
 	if err != nil {
@@ -269,7 +354,7 @@ func (hm *HcasMount) handleLookupRequest(req *fuse.LookupRequest) error {
 		return err
 	}
 
-	dirEntry, nodeOffset, err := hcasfs.LookupChild(nodeFile, req.Name)
+	dirEntry, err := hcasfs.LookupChild(nodeFile, req.Name)
 	if err != nil {
 		return err
 	}
@@ -281,13 +366,15 @@ func (hm *HcasMount) handleLookupRequest(req *fuse.LookupRequest) error {
     }
   }
 
-	inodeId := uint64(req.Node) + nodeOffset
+	inodeId := fuse.NodeID(uint64(req.Node) + dirEntry.ParentDepIndex)
+	fmt.Printf("Looking up %s %d %d\n", req.Name, inodeId, dirEntry.ParentDepIndex)
   req.Respond(&fuse.LookupResponse{
-    Node:       2, // TODO
+    Node:       inodeId,
     Generation: 1, // What is this?
     EntryValid: DURATION_DEFAULT, // Check this out, too
     Attr:       inodeAttr(inodeId, &dirEntry.Inode),
   })
+	hm.trackInode(inodeId, &dirEntry.Inode)
 
   return nil
 }
@@ -402,11 +489,11 @@ func (h *FileHandleDir) Read(req *fuse.ReadRequest) error {
 		var dirEntry hcasfs.DirEntry
 		dirEntry.DecodeStream(h.nodeFile)
 
-		fmt.Printf("Listing file %d %d %s\n", h.currentSeek, h.dirEntryCount, dirEntry.FileName)
+		inodeId := h.inodeId + dirEntry.ParentDepIndex
     size := addDirEntry(
 			buf[bufOffset:],
 			dirEntry.FileName,
-			h.inodeId + 1 + dirEntry.Inode.ParentDepIndex,
+			inodeId,
 			uint64(h.currentSeek + 1),
 			dirEntry.Inode.Mode,
 		)
@@ -417,7 +504,6 @@ func (h *FileHandleDir) Read(req *fuse.ReadRequest) error {
     bufOffset += size
 	}
 	
-	fmt.Printf("Read a bunch of data %d\n", bufOffset)
   req.Respond(&fuse.ReadResponse{
     Data: buf[:bufOffset],
   })
@@ -446,7 +532,7 @@ func (hm *HcasMount) handleGetattrRequest(req *fuse.GetattrRequest) error {
   }
 
   req.Respond(&fuse.GetattrResponse{
-    Attr: inodeAttr(uint64(req.Node), inode),
+    Attr: inodeAttr(req.Node, inode),
   })
   return nil
 }
@@ -463,4 +549,36 @@ func (hm *HcasMount) handleReadRequest(req *fuse.ReadRequest) error {
     }
   }
   return handle.Read(req)
+}
+
+func (hm *HcasMount) handleReadlinkRequest(req *fuse.ReadlinkRequest) error {
+	fmt.Printf("got readlink 0 %d!\n", uint64(req.Node))
+  inode, err := hm.getInode(req.Node)
+  if err != nil {
+    return err
+  }
+	fmt.Printf("got readlink 1!\n")
+
+	f, err := hm.openFileByName(inode.ObjName[:])
+	if err != nil {
+		return err
+	}
+	fmt.Printf("got readlink 2!\n")
+
+	buf := make([]byte, unix.PATH_MAX + 1)
+	bytesRead := 0
+	for bytesRead < len(buf) {
+		amt, err := f.Read(buf[bytesRead:])
+		bytesRead += amt
+		if err == io.EOF {
+			break;
+		}
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Printf("readlink %s\n", string(buf[:bytesRead]))
+
+	req.Respond(string(buf[:bytesRead]))
+	return nil
 }
