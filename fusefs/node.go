@@ -2,7 +2,6 @@ package fusefs
 
 import (
 	"fmt"
-	"os"
 
 	"bazil.org/fuse"
 	"github.com/go-errors/errors"
@@ -10,18 +9,6 @@ import (
 	"github.com/msg555/hcas/hcasfs"
 	"github.com/msg555/hcas/unix"
 )
-
-type FileHandle interface {
-	Read(*fuse.ReadRequest) error
-	Release(*fuse.ReleaseRequest) error
-}
-
-type FileHandleDir struct {
-	nodeFile      *os.File
-	inodeId       uint64
-	dirEntryCount uint32
-	currentSeek   uint32
-}
 
 type InodeReference struct {
 	Inode    hcasfs.InodeData
@@ -171,5 +158,21 @@ func (hm *HcasMount) handleAccessRequest(req *fuse.AccessRequest) error {
 	}
 
 	req.Respond()
+	return nil
+}
+
+func (hm *HcasMount) handleGetxattrRequest(req *fuse.GetxattrRequest) error {
+	/* Xattrs are not supported */
+	req.Respond(&fuse.GetxattrResponse{
+		Xattr: nil,
+	})
+	return nil
+}
+
+func (hm *HcasMount) handleListxattrRequest(req *fuse.ListxattrRequest) error {
+	/* Xattrs are not supported */
+	req.Respond(&fuse.ListxattrResponse{
+		Xattr: nil,
+	})
 	return nil
 }

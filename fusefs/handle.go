@@ -2,7 +2,9 @@ package fusefs
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
+	"os"
 
 	"bazil.org/fuse"
 	"github.com/go-errors/errors"
@@ -10,6 +12,23 @@ import (
 	"github.com/msg555/hcas/hcasfs"
 	"github.com/msg555/hcas/unix"
 )
+
+type FileHandle interface {
+	Read(*fuse.ReadRequest) error
+	Release(*fuse.ReleaseRequest) error
+}
+
+type FileHandleDir struct {
+	nodeFile      *os.File
+	inodeId       uint64
+	dirEntryCount uint32
+	currentSeek   uint32
+}
+
+type FileHandleReg struct {
+	nodeFile *os.File
+	inodeId  uint64
+}
 
 func (hm *HcasMount) openHandle(handle FileHandle) fuse.HandleID {
 	hm.handleLock.Lock()
@@ -35,7 +54,13 @@ func (hm *HcasMount) handleOpenRequest(req *fuse.OpenRequest) error {
 		}
 
 		handleID = hm.openHandle(handle)
-	// case unix.S_IFREG:
+	case unix.S_IFREG:
+		handle, err := hm.CreateFileHandleReg(uint64(req.Node), inode.ObjName[:])
+		if err != nil {
+			return err
+		}
+
+		handleID = hm.openHandle(handle)
 	default:
 		return errors.New("not implemented")
 	}
@@ -94,6 +119,8 @@ func (h *FileHandleDir) Read(req *fuse.ReadRequest) error {
 		return nil
 	}
 
+	fmt.Printf("Read seek %d %d\n", req.Offset, h.currentSeek)
+
 	// Someone seek'ed our handle.
 	if uint64(req.Offset) != uint64(h.currentSeek) {
 		_, err := h.nodeFile.Seek(16+8*req.Offset, 0)
@@ -142,6 +169,41 @@ func (h *FileHandleDir) Read(req *fuse.ReadRequest) error {
 	return nil
 }
 
+func (hm *HcasMount) CreateFileHandleReg(inodeId uint64, objName []byte) (*FileHandleReg, error) {
+	f, err := hm.openFileByName(objName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FileHandleReg{
+		nodeFile: f,
+		inodeId:  inodeId,
+	}, nil
+}
+
+func (fhr *FileHandleReg) Release(req *fuse.ReleaseRequest) error {
+	return fhr.nodeFile.Close()
+}
+
+func (fhr *FileHandleReg) Read(req *fuse.ReadRequest) error {
+	buf := make([]byte, req.Size)
+	bytesRead := 0
+	fmt.Printf("Got read %d %d\n", req.Offset, req.Size)
+	for bytesRead < req.Size {
+		amt, err := fhr.nodeFile.ReadAt(buf[bytesRead:], req.Offset+int64(bytesRead))
+		bytesRead += amt
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	req.Respond(&fuse.ReadResponse{Data: buf[:bytesRead]})
+	return nil
+}
+
 func (hm *HcasMount) handleReleaseRequest(req *fuse.ReleaseRequest) error {
 	hm.handleLock.Lock()
 	handle, ok := hm.handleMap[req.Handle]
@@ -155,6 +217,12 @@ func (hm *HcasMount) handleReleaseRequest(req *fuse.ReleaseRequest) error {
 		}
 	}
 	return handle.Release(req)
+}
+
+func (hm *HcasMount) handleFlushRequest(req *fuse.FlushRequest) error {
+	/* Nothing to do */
+	req.Respond()
+	return nil
 }
 
 func (hm *HcasMount) handleGetattrRequest(req *fuse.GetattrRequest) error {

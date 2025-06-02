@@ -83,12 +83,14 @@ func (d *DirEntry) DecodeStream(stream io.Reader) error {
 	d.ParentDepIndex = binary.BigEndian.Uint64(buf[84:])
 	fileNameLen := binary.BigEndian.Uint32(buf[92:])
 
-	fileName := make([]byte, fileNameLen)
+	recordLen := len(buf) + int(fileNameLen)
+	recordLen = (recordLen + 7) & ^7
+	fileName := make([]byte, recordLen-len(buf))
 	err = readAll(stream, fileName)
 	if err != nil {
 		return err
 	}
-	d.FileName = string(fileName)
+	d.FileName = string(fileName[:fileNameLen])
 	return nil
 }
 
@@ -304,7 +306,7 @@ func importDirectory(hs hcas.Session, fd int) ([]byte, uint64, error) {
 	}
 
 	headerSize := 16 + len(dirEntries)*8
-	dataOut := make([]byte, headerSize, headerSize+len(dirEntries)*88)
+	dataOut := make([]byte, headerSize)
 
 	recordPositions := make([]uint32, 0, len(dirEntries))
 	for i := range dirEntries {

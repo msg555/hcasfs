@@ -39,6 +39,8 @@ func main() {
 		log.Fatal("failed to find root object name: ", err)
 	}
 
+	log.Print("Mounting root object ", hcas.NameHex(hcasRootName))
+
 	hm, err := fusefs.CreateServer(mountPoint, hcasRootDir, hcasRootName)
   if err != nil {
     log.Fatal("failed to create mount", err)

@@ -134,12 +134,10 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
 		err = hm.handleGetattrRequest(req.(*fuse.GetattrRequest))
 	case *fuse.ReadlinkRequest:
 		err = hm.handleReadlinkRequest(req.(*fuse.ReadlinkRequest))
-		/*
-		   case *fuse.ListxattrRequest:
-		     err = hm.handleListxattrRequest(req.(*fuse.ListxattrRequest))
-		   case *fuse.GetxattrRequest:
-		     err = hm.handleGetxattrRequest(req.(*fuse.GetxattrRequest))
-		*/
+	case *fuse.GetxattrRequest:
+		err = hm.handleGetxattrRequest(req.(*fuse.GetxattrRequest))
+	case *fuse.ListxattrRequest:
+		err = hm.handleListxattrRequest(req.(*fuse.ListxattrRequest))
 		/*
 		   case *fuse.SetattrRequest:
 		     nd.handleSetattrRequest(req.(*fuse.SetattrRequest))
@@ -153,12 +151,8 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
 		err = hm.handleReleaseRequest(req.(*fuse.ReleaseRequest))
 	case *fuse.ReadRequest:
 		err = hm.handleReadRequest(req.(*fuse.ReadRequest))
-		/*
-		   case *fuse.WriteRequest:
-		     err = hm.handleWriteRequest(req.(*fuse.WriteRequest))
-		   case *fuse.FlushRequest:
-		     err = hm.handleFlushRequest(req.(*fuse.FlushRequest))
-		*/
+	case *fuse.FlushRequest:
+		err = hm.handleFlushRequest(req.(*fuse.FlushRequest))
 		/*
 		   case *fuse.WriteRequest:
 		     nd.handleWriteRequest(req.(*fuse.WriteRequest))
