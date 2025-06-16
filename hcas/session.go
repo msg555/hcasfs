@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 )
@@ -31,7 +30,7 @@ func createSession(hcas *hcasInternal) (Session, error) {
 	}, nil
 }
 
-func (s *hcasSession) GetLabel(namespace string, label string) ([]byte, error) {
+func (s *hcasSession) GetLabel(namespace string, label string) (*Name, error) {
 	tx, err := s.hcas.db.Begin()
 	if err != nil {
 		return nil, err
@@ -43,14 +42,19 @@ SELECT l.object_id, o.name FROM labels AS l
 	WHERE namespace = ? AND label = ?;`, namespace, label)
 
 	var objectId int64
-	var name []byte
-	err = row.Scan(&objectId, &name)
+	var nameBytes []byte
+	err = row.Scan(&objectId, &nameBytes)
 	if err != nil && err != sql.ErrNoRows {
 		tx.Rollback()
 		return nil, err
 	}
 
-	if name != nil {
+	if nameBytes != nil {
+		if len(nameBytes) != 32 {
+			tx.Rollback()
+			return nil, errors.New("unexpected object name from database")
+		}
+
 		_, err = tx.Exec(`
 INSERT INTO session_deps (session_id, object_id) VALUES (?, ?);
 UPDATE objects SET ref_count = ref_count + 1 WHERE id = ?;
@@ -66,10 +70,14 @@ UPDATE objects SET ref_count = ref_count + 1 WHERE id = ?;
 		return nil, err
 	}
 
-	return name, nil
+	if nameBytes != nil {
+		name := NewName(string(nameBytes))
+		return &name, nil
+	}
+	return nil, nil
 }
 
-func (s *hcasSession) SetLabel(namespace string, label string, name []byte) error {
+func (s *hcasSession) SetLabel(namespace string, label string, name *Name) error {
 	tx, err := s.hcas.db.Begin()
 	if err != nil {
 		return err
@@ -80,7 +88,7 @@ func (s *hcasSession) SetLabel(namespace string, label string, name []byte) erro
 	if name != nil {
 		row := tx.QueryRow(
 			"SELECT id FROM objects WHERE name = ?",
-			name,
+			name.Name(),
 		)
 
 		err = row.Scan(&objectId)
@@ -95,7 +103,6 @@ func (s *hcasSession) SetLabel(namespace string, label string, name []byte) erro
 
 	// Delete existing labeled object if it existed
 	if objectId != 0 {
-		fmt.Printf("Set label %s to %d\n", label, objectId)
 		_, err = tx.Exec(`
 UPDATE objects AS o
 	SET ref_count = ref_count - 1
@@ -103,8 +110,11 @@ UPDATE objects AS o
 		SELECT 1 FROM labels WHERE namespace = ? AND label = ? AND object_id = o.id
 	);
 
+UPDATE objects SET ref_count = ref_count + 1
+	WHERE id = ?;
+
 INSERT OR REPLACE INTO labels (namespace, label, object_id) VALUES (?, ?, ?);
-	`, namespace, label, namespace, label, objectId)
+	`, namespace, label, objectId, namespace, label, objectId)
 	} else {
 		_, err = tx.Exec(`
 UPDATE objects AS o
@@ -123,7 +133,7 @@ DELETE FROM labels WHERE namespace = ? AND label = ?;
 	return tx.Commit()
 }
 
-func (s *hcasSession) CreateObject(data []byte, deps ...[]byte) ([]byte, error) {
+func (s *hcasSession) CreateObject(data []byte, deps ...Name) (*Name, error) {
 	ow, err := s.StreamObject(deps...)
 	if err != nil {
 		return nil, err
@@ -142,7 +152,7 @@ func (s *hcasSession) CreateObject(data []byte, deps ...[]byte) ([]byte, error) 
 	return ow.Name(), nil
 }
 
-func (s *hcasSession) StreamObject(deps ...[]byte) (ObjectWriter, error) {
+func (s *hcasSession) StreamObject(deps ...Name) (ObjectWriter, error) {
 	return createObjectStream(s, deps...)
 }
 

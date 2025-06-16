@@ -2,10 +2,8 @@ package hcasfs
 
 import (
 	"encoding/binary"
-	"fmt"
 	"hash/crc32"
 	"io"
-	"os"
 	"sort"
 
 	"github.com/go-errors/errors"
@@ -23,15 +21,107 @@ type InodeData struct {
 	Mtim    uint64
 	Ctim    uint64
 	Size    uint64
-	ObjName [32]byte
+	ObjName *hcas.Name
+}
+
+func InodeFromStat(st unix.Stat_t, objName *hcas.Name) *InodeData {
+	inode := &InodeData{
+		Mode:    st.Mode,
+		Uid:     st.Uid,
+		Gid:     st.Gid,
+		Dev:     0,
+		Atim:    uint64(st.Atim.Nano()),
+		Mtim:    uint64(st.Mtim.Nano()),
+		Ctim:    uint64(st.Ctim.Nano()),
+		Size:    uint64(st.Size),
+		ObjName: objName,
+	}
+	if unix.S_ISCHR(st.Mode) || unix.S_ISBLK(st.Mode) {
+		inode.Dev = st.Rdev
+	}
+	return inode
 }
 
 type DirEntry struct {
 	Inode            InodeData
 	FileName         string
-	ChildDeps        uint64
+	TreeSize         uint64
 	FileNameChecksum uint32
 	ParentDepIndex   uint64
+}
+
+type dirBuilder struct {
+	DirEntries    []DirEntry
+	DepNames      []hcas.Name
+	TotalTreeSize uint64
+}
+
+func CreateDirBuilder() *dirBuilder {
+	return &dirBuilder{
+		DirEntries:    make([]DirEntry, 0, 16),
+		DepNames:      make([]hcas.Name, 0, 16),
+		TotalTreeSize: 1,
+	}
+}
+
+// Insert a child object into this directory. treeSize should be the total tree
+// size of the child including itself (and should be exactly 1 if the child is
+// not a directory).
+func (d *dirBuilder) Insert(fileName string, inode *InodeData, treeSize uint64) {
+	if treeSize == 0 {
+		panic("treeSize cannot be 0")
+	}
+	if treeSize > 1 && !unix.S_ISDIR(inode.Mode) {
+		panic("treeSize must be 1 for non-directories")
+	}
+
+	dirEntry := DirEntry{
+		Inode:            *inode,
+		FileName:         fileName,
+		TreeSize:         treeSize,
+		FileNameChecksum: crc32.ChecksumIEEE([]byte(fileName)),
+	}
+	d.DirEntries = append(d.DirEntries, dirEntry)
+
+	if fileModeHasObjectData(inode.Mode) != (inode.ObjName != nil) {
+		panic("object data state unexpected for file type")
+	}
+	if inode.ObjName != nil {
+		d.DepNames = append(d.DepNames, *inode.ObjName)
+	}
+	d.TotalTreeSize += treeSize
+}
+
+func (d *dirBuilder) Build() []byte {
+	sort.Slice(d.DirEntries, func(i, j int) bool {
+		return d.DirEntries[i].FileNameChecksum < d.DirEntries[j].FileNameChecksum
+	})
+
+	var parentOffset uint64 = 1
+	for i := range d.DirEntries {
+		d.DirEntries[i].ParentDepIndex = parentOffset
+		parentOffset += d.DirEntries[i].TreeSize
+	}
+
+	headerSize := 16 + len(d.DirEntries)*8
+	dataOut := make([]byte, headerSize)
+
+	recordPositions := make([]uint32, 0, len(d.DirEntries))
+	for i := range d.DirEntries {
+		recordPositions = append(recordPositions, uint32(len(dataOut)))
+		dataOut = append(dataOut, d.DirEntries[i].Encode()...)
+	}
+
+	var flags uint32 = 0
+	binary.BigEndian.PutUint32(dataOut[0:], flags)
+	binary.BigEndian.PutUint32(dataOut[4:], uint32(len(d.DirEntries)))
+	binary.BigEndian.PutUint64(dataOut[8:], d.TotalTreeSize)
+	for ind := range d.DirEntries {
+		binary.BigEndian.PutUint32(dataOut[16+8*ind:], recordPositions[ind])
+		binary.BigEndian.PutUint32(dataOut[20+8*ind:], d.DirEntries[ind].FileNameChecksum)
+	}
+
+	return dataOut
 }
 
 func readAll(stream io.Reader, buf []byte) error {
@@ -43,6 +133,10 @@ func readAll(stream io.Reader, buf []byte) error {
 		buf = buf[amt:]
 	}
 	return nil
+}
+
+func fileModeHasObjectData(mode uint32) bool {
+	return unix.S_ISREG(mode) || unix.S_ISDIR(mode) || unix.S_ISLNK(mode)
 }
 
 func (d *DirEntry) Encode() []byte {
@@ -57,7 +151,9 @@ func (d *DirEntry) Encode() []byte {
 	binary.BigEndian.PutUint64(buf[28:], d.Inode.Mtim)
 	binary.BigEndian.PutUint64(buf[36:], d.Inode.Ctim)
 	binary.BigEndian.PutUint64(buf[44:], d.Inode.Size)
-	copy(buf[52:], d.Inode.ObjName[:])
+	if d.Inode.ObjName != nil {
+		copy(buf[52:], d.Inode.ObjName.Name())
+	}
 	binary.BigEndian.PutUint64(buf[84:], d.ParentDepIndex)
 	binary.BigEndian.PutUint32(buf[92:], uint32(len(d.FileName)))
 	copy(buf[96:], d.FileName)
@@ -79,7 +175,10 @@ func (d *DirEntry) DecodeStream(stream io.Reader) error {
 	d.Inode.Mtim = binary.BigEndian.Uint64(buf[28:])
 	d.Inode.Ctim = binary.BigEndian.Uint64(buf[36:])
 	d.Inode.Size = binary.BigEndian.Uint64(buf[44:])
-	copy(d.Inode.ObjName[:], buf[52:])
+	if fileModeHasObjectData(d.Inode.Mode) {
+		objName := hcas.NewName(string(buf[52:84]))
+		d.Inode.ObjName = &objName
+	}
 	d.ParentDepIndex = binary.BigEndian.Uint64(buf[84:])
 	fileNameLen := binary.BigEndian.Uint32(buf[92:])
 
@@ -118,7 +217,7 @@ func nullTerminatedString(data []byte) string {
 	return string(data)
 }
 
-func importRegular(hs hcas.Session, fd int) ([]byte, uint64, error) {
+func importRegular(hs hcas.Session, fd int) (*hcas.Name, uint64, error) {
 	buf := make([]byte, 1<<16)
 
 	writer, err := hs.StreamObject()
@@ -153,202 +252,6 @@ func importRegular(hs hcas.Session, fd int) ([]byte, uint64, error) {
 	}
 
 	return writer.Name(), totalBytesRead, nil
-}
-
-func importLink(hs hcas.Session, fd int) ([]byte, uint64, error) {
-	buf := make([]byte, unix.PATH_MAX)
-	bytesRead, err := unix.Readlinkat(fd, "", buf)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	writer, err := hs.StreamObject()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	bufRead := buf[:bytesRead]
-	for total := 0; total < bytesRead; {
-		bytesWritten, err := writer.Write(bufRead[total:])
-		if err != nil {
-			return nil, 0, err
-		}
-		total += bytesWritten
-	}
-
-	err = writer.Close()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return writer.Name(), uint64(bytesRead), nil
-}
-
-func importDirectory(hs hcas.Session, fd int) ([]byte, uint64, error) {
-	buf := make([]byte, 1<<16)
-	var totalChildDeps uint64
-	dirEntries := make([]DirEntry, 0, 16)
-	var directDeps [][]byte
-	for {
-		bytesRead, err := unix.Getdents(fd, buf)
-		if err != nil {
-			return nil, 0, err
-		}
-		if bytesRead == 0 {
-			break
-		}
-
-		// TODO: Verify we don't have to handle dir entries that straddle reads
-		for pos := 0; pos < bytesRead; {
-			ino := unix.Hbo.Uint64(buf[pos:])
-			// not needed
-			// off := unix.Hbo.Uint64(buf[pos+8:])
-			reclen := unix.Hbo.Uint16(buf[pos+16:])
-			tp := uint8(buf[pos+18])
-			fileName := nullTerminatedString(buf[pos+19 : pos+int(reclen)])
-			pos += int(reclen)
-
-			fmt.Printf("Got file %s\n", fileName)
-
-			if ino == 0 || fileName == "." || fileName == ".." {
-				continue // Skip fake/deleted files
-			}
-			if !validatePathName(fileName) {
-				fmt.Fprintf(os.Stderr, "skipped file with invalid name '%s'\n", fileName)
-				continue
-			}
-
-			flags := unix.O_PATH | unix.O_NOFOLLOW
-			if tp == unix.DT_REG {
-				flags = unix.O_RDONLY | unix.O_NOFOLLOW
-			} else if tp == unix.DT_DIR {
-				flags = unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_DIRECTORY
-			}
-			childFd, err := unix.Openat(fd, fileName, flags, 0)
-			if err != nil {
-				return nil, 0, err
-			}
-
-			var childSt unix.Stat_t
-			err = unix.Fstat(childFd, &childSt)
-			if err != nil {
-				unix.Close(childFd)
-				return nil, 0, err
-			}
-
-			if (childSt.Mode & unix.S_IFMT) != (uint32(tp) << 12) {
-				unix.Close(childFd)
-				return nil, 0, errors.New("Unexpected file type statting file")
-			}
-
-			var childObjName []byte
-			var childSize uint64
-			var childDeps uint64
-
-			if tp == unix.DT_REG {
-				childObjName, childSize, err = importRegular(hs, childFd)
-			} else if tp == unix.DT_DIR {
-				childObjName, childDeps, err = importDirectory(hs, childFd)
-			} else if tp == unix.DT_LNK {
-				childObjName, childSize, err = importLink(hs, childFd)
-			}
-			if err != nil {
-				unix.Close(childFd)
-				return nil, 0, err
-			}
-			err = unix.Close(childFd)
-			if err != nil {
-				return nil, 0, err
-			}
-
-			if (tp == unix.DT_REG || tp == unix.DT_LNK) && childSize != uint64(childSt.Size) {
-				return nil, 0, errors.New("Unexpected file size")
-			}
-
-			dirEntry := DirEntry{
-				Inode: InodeData{
-					Mode: childSt.Mode,
-					Uid:  childSt.Uid,
-					Gid:  childSt.Gid,
-					Dev:  0,
-					Atim: uint64(childSt.Atim.Nano()),
-					Mtim: uint64(childSt.Mtim.Nano()),
-					Ctim: uint64(childSt.Ctim.Nano()),
-					Size: uint64(childSt.Size),
-				},
-				FileName:  fileName,
-				ChildDeps: childDeps,
-			}
-			copy(dirEntry.Inode.ObjName[:], childObjName)
-			totalChildDeps += childDeps + 1
-			if childObjName != nil {
-				directDeps = append(directDeps, childObjName)
-			}
-
-			if tp == unix.DT_CHR || tp == unix.DT_BLK {
-				dirEntry.Inode.Dev = childSt.Rdev
-			}
-			dirEntries = append(dirEntries, dirEntry)
-		}
-	}
-
-	for i := range dirEntries {
-		dirEntries[i].FileNameChecksum = crc32.ChecksumIEEE([]byte(dirEntries[i].FileName))
-	}
-	sort.Slice(dirEntries, func(i, j int) bool {
-		return dirEntries[i].FileNameChecksum < dirEntries[j].FileNameChecksum
-	})
-
-	var parentOffset uint64 = 1
-	for i := range dirEntries {
-		dirEntries[i].ParentDepIndex = parentOffset
-		parentOffset += dirEntries[i].ChildDeps + 1
-	}
-
-	headerSize := 16 + len(dirEntries)*8
-	dataOut := make([]byte, headerSize)
-
-	recordPositions := make([]uint32, 0, len(dirEntries))
-	for i := range dirEntries {
-		recordPositions = append(recordPositions, uint32(len(dataOut)))
-		dataOut = append(dataOut, dirEntries[i].Encode()...)
-	}
-
-	var flags uint32 = 0
-	binary.BigEndian.PutUint32(dataOut[0:], flags)
-	binary.BigEndian.PutUint32(dataOut[4:], uint32(len(dirEntries)))
-	binary.BigEndian.PutUint64(dataOut[8:], totalChildDeps)
-	for ind := range dirEntries {
-		binary.BigEndian.PutUint32(dataOut[16+8*ind:], recordPositions[ind])
-		binary.BigEndian.PutUint32(dataOut[20+8*ind:], dirEntries[ind].FileNameChecksum)
-	}
-
-	name, err := hs.CreateObject(dataOut, directDeps...)
-	if err != nil {
-		return nil, 0, err
-	}
-	return name, totalChildDeps, nil
-}
-
-func ImportPath(hs hcas.Session, path string) ([]byte, error) {
-	flags := unix.O_DIRECTORY | unix.O_RDONLY
-	fd, err := unix.Open(path, flags, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer unix.Close(fd)
-
-	var st unix.Stat_t
-	err = unix.Fstat(fd, &st)
-	if err != nil {
-		return nil, err
-	}
-
-	if !unix.S_ISDIR(st.Mode) {
-		return nil, errors.New("Only directories can be imported directly")
-	}
-	name, _, err := importDirectory(hs, fd)
-	return name, err
 }
 
 func LookupChild(dirData io.ReadSeeker, name string) (dirEntry *DirEntry, err error) {

@@ -83,17 +83,17 @@ func (env *testEnv) createSession() Session {
 }
 
 // createObject is a helper to create an object with specified data and dependencies
-func (env *testEnv) createObject(session Session, data []byte, deps ...[]byte) []byte {
+func (env *testEnv) createObject(session Session, data []byte, deps ...Name) Name {
 	env.t.Helper()
 
 	name, err := session.CreateObject(data, deps...)
 	require.NoError(env.t, err, "Failed to create object")
 
-	return name
+	return *name
 }
 
 // setLabel is a helper to set a label for an object
-func (env *testEnv) setLabel(session Session, namespace, label string, name []byte) {
+func (env *testEnv) setLabel(session Session, namespace, label string, name *Name) {
 	env.t.Helper()
 
 	err := session.SetLabel(namespace, label, name)
@@ -101,7 +101,7 @@ func (env *testEnv) setLabel(session Session, namespace, label string, name []by
 }
 
 // getLabel is a helper to get an object by label
-func (env *testEnv) getLabel(session Session, namespace, label string) []byte {
+func (env *testEnv) getLabel(session Session, namespace, label string) *Name {
 	env.t.Helper()
 
 	name, err := session.GetLabel(namespace, label)
@@ -111,7 +111,7 @@ func (env *testEnv) getLabel(session Session, namespace, label string) []byte {
 }
 
 // readObject is a helper to read an object's content
-func (env *testEnv) readObject(name []byte) []byte {
+func (env *testEnv) readObject(name Name) []byte {
 	env.t.Helper()
 
 	file, err := env.hcasInst.ObjectOpen(name)
@@ -125,7 +125,7 @@ func (env *testEnv) readObject(name []byte) []byte {
 }
 
 // verifyObjectExists checks if an object with the given name exists
-func (env *testEnv) verifyObjectExists(name []byte) bool {
+func (env *testEnv) verifyObjectExists(name Name) bool {
 	env.t.Helper()
 
 	// Check if the object file exists
@@ -261,7 +261,7 @@ func TestStreamObject(t *testing.T) {
 	require.NotNil(t, name, "Object name should not be nil")
 
 	// Verify content
-	content := env.readObject(name)
+	content := env.readObject(*name)
 	assert.Equal(t, testData, content, "Streamed object content should match")
 }
 
@@ -314,18 +314,18 @@ func TestLabelOperations(t *testing.T) {
 
 	// Set labels
 	const namespace = "test"
-	env.setLabel(session, namespace, "obj1", obj1Name)
+	env.setLabel(session, namespace, "obj1", &obj1Name)
 
 	// Get object by label
 	retrievedName := env.getLabel(session, namespace, "obj1")
-	assert.Equal(t, obj1Name, retrievedName, "Retrieved object name should match")
+	assert.Equal(t, obj1Name, *retrievedName, "Retrieved object name should match")
 
 	// Change label to point to obj2
-	env.setLabel(session, namespace, "obj1", obj2Name)
+	env.setLabel(session, namespace, "obj1", &obj2Name)
 
 	// Get updated label
 	retrievedName = env.getLabel(session, namespace, "obj1")
-	assert.Equal(t, obj2Name, retrievedName, "Updated label should point to obj2")
+	assert.Equal(t, obj2Name, *retrievedName, "Updated label should point to obj2")
 
 	// Remove label
 	env.setLabel(session, namespace, "obj1", nil)

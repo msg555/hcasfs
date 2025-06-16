@@ -13,7 +13,7 @@ import (
 )
 
 // getObjectRefCount returns the reference count of an object from the database
-func getObjectRefCount(t *testing.T, baseDir string, objectName []byte) int {
+func getObjectRefCount(t *testing.T, baseDir string, objectName Name) int {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", filepath.Join(baseDir, MetadataPath))
@@ -21,7 +21,7 @@ func getObjectRefCount(t *testing.T, baseDir string, objectName []byte) int {
 	defer db.Close()
 
 	var refCount int
-	err = db.QueryRow("SELECT ref_count FROM objects WHERE name = ?", objectName).Scan(&refCount)
+	err = db.QueryRow("SELECT ref_count FROM objects WHERE name = ?", objectName.Name()).Scan(&refCount)
 	require.NoError(t, err, "Failed to get object reference count")
 
 	return refCount
@@ -77,7 +77,7 @@ func TestBasicGarbageCollection(t *testing.T) {
 	obj3 := env.createObject(session, []byte("Test object 3"), obj1, obj2)
 
 	// Set a label for obj3
-	env.setLabel(session, "test", "obj3", obj3)
+	env.setLabel(session, "test", "obj3", &obj3)
 
 	// Close session (obj1, obj2, obj3 are now referenced only by obj3's dependencies and the label)
 	env.closeSession(session)
@@ -208,7 +208,7 @@ func TestLabelRefCounting(t *testing.T) {
 	obj := env.createObject(session, []byte("Labeled object"))
 
 	// Set label
-	env.setLabel(session, "test", "labeled", obj)
+	env.setLabel(session, "test", "labeled", &obj)
 
 	// Get reference count
 	refCount := getObjectRefCount(t, env.baseDir, obj)
@@ -239,12 +239,9 @@ func TestLabelRefCounting(t *testing.T) {
 
 	// Check if objects were collected
 	finalCount := countObjects(t, env.baseDir)
-	finalRefCount := -1
 	t.Logf("After garbage collection, remaining objects: %d", finalCount)
 
-	// If the object still exists, get its reference count
-	finalRefCount = getObjectRefCount(t, env.baseDir, obj)
-	t.Logf("After garbage collection, object ref count: %d", finalRefCount)
+	assert.Equal(t, finalCount, 0)
 }
 
 // TestIncrementalGarbageCollection tests incremental garbage collection
@@ -257,7 +254,7 @@ func TestIncrementalGarbageCollection(t *testing.T) {
 	// Create 10 objects
 	session := env.createSession()
 
-	objects := make([][]byte, 10)
+	objects := make([]Name, 10)
 	for i := 0; i < 10; i++ {
 		objects[i] = env.createObject(session, append([]byte("Object"), byte(i)))
 	}

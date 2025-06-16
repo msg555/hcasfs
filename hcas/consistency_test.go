@@ -26,9 +26,9 @@ func checkRefCountConsistency(t *testing.T, baseDir string) {
 
 	for rows.Next() {
 		var id int64
-		var name []byte
+		var nameBytes []byte
 		var refCount int
-		err = rows.Scan(&id, &name, &refCount)
+		err = rows.Scan(&id, &nameBytes, &refCount)
 		require.NoError(t, err, "Failed to scan object")
 
 		// Count references from dependencies
@@ -51,11 +51,11 @@ func checkRefCountConsistency(t *testing.T, baseDir string) {
 
 		// Log the counts
 		t.Logf("Object %x: ref_count=%d, expected=%d (deps=%d, sessions=%d, labels=%d)",
-			name, refCount, expectedCount, depCount, sessionCount, labelCount)
+			nameBytes, refCount, expectedCount, depCount, sessionCount, labelCount)
 
 		// Check if reference count matches expected count
 		assert.Equal(t, expectedCount, refCount,
-			"Reference count mismatch for object %x", name)
+			"Reference count mismatch for object %x", nameBytes)
 	}
 }
 
@@ -76,8 +76,8 @@ func TestReferenceCountConsistency(t *testing.T) {
 	obj3 := env.createObject(session2, []byte("Object 3"), obj1, obj2)
 
 	// Set labels
-	env.setLabel(session1, "test", "obj1", obj1)
-	env.setLabel(session2, "test", "obj3", obj3)
+	env.setLabel(session1, "test", "obj1", &obj1)
+	env.setLabel(session2, "test", "obj3", &obj3)
 
 	// Check reference count consistency
 	t.Run("AfterCreation", func(t *testing.T) {

@@ -29,7 +29,7 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	fmt.Printf("imported path to %s\n", hcas.NameHex(name))
+	fmt.Printf("imported path to %s\n", name.HexName())
 
 	err = session.SetLabel("image", os.Args[2], name)
 	if err != nil {

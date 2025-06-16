@@ -1,8 +1,31 @@
 package hcas
 
 import (
+	"encoding/hex"
 	"os"
 )
+
+// Immutable struct containing a 32-byte content addressed name of an object.
+type Name struct {
+	name string
+}
+
+func NewName(name string) Name {
+	if len(name) != 32 {
+		panic("name must be exactly 32 bytes")
+	}
+	return Name{
+		name: name,
+	}
+}
+
+func (n *Name) HexName() string {
+	return hex.EncodeToString([]byte(n.name))
+}
+
+func (n *Name) Name() string {
+	return n.name
+}
 
 // Main Higher-archichal content addressable storage (Hcas) interface
 //
@@ -23,11 +46,11 @@ type Hcas interface {
 
 	// Open the object as a read-only os.File object. The file will remain
 	// readable even if the underlying object is later removed from HCAS.
-	ObjectOpen(name []byte) (*os.File, error)
+	ObjectOpen(name Name) (*os.File, error)
 
 	// Returns a path to the named object. This method does not ensure that the
 	// named object actually exists.
-	ObjectPath(name []byte) string
+	ObjectPath(name Name) string
 
 	// Close all resources associated with the Hcas instance. All remaining open
 	// sessions associated with this Hcas instance will automatically be
@@ -49,24 +72,24 @@ type Session interface {
 	//
 	// A reference to the returned object will be added into the session's
 	// reference list.
-	GetLabel(namespace string, label string) ([]byte, error)
+	GetLabel(namespace string, label string) (*Name, error)
 
 	// Set the object associated with the passed label. If name is nil the label
 	// will be deleted.
-	SetLabel(namespace string, label string, name []byte) error
+	SetLabel(namespace string, label string, name *Name) error
 
 	// Create a new object with the passed 'data' and the associated dependencies.
 	//
 	// Returns the name of the created object and adds a reference to it into the
 	// session's reference list.
-	CreateObject(data []byte, deps ...[]byte) ([]byte, error)
+	CreateObject(data []byte, deps ...Name) (*Name, error)
 
 	// Returns an ObjectWriter that allows the caller stream data into a newly
 	// created object.
 	//
 	// After calling Close() the object will be created and a reference will be
 	// added to the session's reference list.
-	StreamObject(deps ...[]byte) (ObjectWriter, error)
+	StreamObject(deps ...Name) (ObjectWriter, error)
 
 	// Close this session and release any references held to any objects.
 	Close() error
@@ -83,5 +106,5 @@ type ObjectWriter interface {
 
 	// Call Name() after Close() to get the content addressable name of the object
 	// written.
-	Name() []byte
+	Name() *Name
 }

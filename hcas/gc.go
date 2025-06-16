@@ -1,6 +1,7 @@
 package hcas
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -129,12 +130,17 @@ WHERE EXISTS (
 	}
 
 	for rows.Next() {
-		var name []byte
-		err = rows.Scan(&name)
+		var nameBytes []byte
+		err = rows.Scan(&nameBytes)
 		if err != nil {
 			h.db.Exec("ROLLBACK")
 			return 0, err
 		}
+		if len(nameBytes) != 32 {
+			h.db.Exec("ROLLBACK")
+			return 0, errors.New("got invalid name from db")
+		}
+		name := NewName(string(nameBytes))
 
 		// Attempt to delete object data. It may already not exist so ignore on
 		// failures.

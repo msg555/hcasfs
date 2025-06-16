@@ -2,7 +2,6 @@ package hcas
 
 import (
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -86,10 +85,6 @@ type hcasInternal struct {
 	sessions []Session
 }
 
-func NameHex(name []byte) string {
-	return hex.EncodeToString(name)
-}
-
 // Open an existing HCAS instance at the specified path
 func OpenHcas(basePath string) (Hcas, error) {
 	basePath, err := filepath.Abs(basePath)
@@ -161,7 +156,6 @@ func CreateHcas(basePath string) (Hcas, error) {
 	}
 
 	_, err = db.Exec(hcasSchemaInit)
-	fmt.Printf("Created Schema: %s", err)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -201,12 +195,12 @@ func (h *hcasInternal) Close() error {
 	return errResult
 }
 
-func (h *hcasInternal) ObjectOpen(name []byte) (*os.File, error) {
+func (h *hcasInternal) ObjectOpen(name Name) (*os.File, error) {
 	return os.Open(h.ObjectPath(name))
 }
 
-func (h *hcasInternal) ObjectPath(name []byte) string {
-	nameHex := NameHex(name)
+func (h *hcasInternal) ObjectPath(name Name) string {
+	nameHex := name.HexName()
 	return filepath.Join(
 		h.basePath,
 		DataPath,
@@ -219,8 +213,8 @@ func (h *hcasInternal) tempFilePath(tempFileId int64) string {
 	return filepath.Join(h.basePath, TempPath, strconv.FormatInt(tempFileId, 10))
 }
 
-func (h *hcasInternal) dataFilePath(name []byte) (string, string) {
-	nameHex := NameHex(name)
+func (h *hcasInternal) dataFilePath(name Name) (string, string) {
+	nameHex := name.HexName()
 	dirPath := filepath.Join(h.basePath, DataPath, nameHex[:2])
 	return dirPath, filepath.Join(dirPath, nameHex[2:])
 }

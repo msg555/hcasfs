@@ -1,7 +1,6 @@
 package hcas
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
@@ -17,20 +16,16 @@ type hcasObjectWriter struct {
 	tempFileId int64
 	file       *os.File
 	hsh        hash.Hash
-	deps       [][]byte
-	name       []byte
+	deps       []Name
+	name       *Name
 }
 
-func createObjectStream(session *hcasSession, deps ...[]byte) (ObjectWriter, error) {
+func createObjectStream(session *hcasSession, deps ...Name) (ObjectWriter, error) {
 	// TODO: Is this really the best way to copy this?
-	depsCopy := make([][]byte, len(deps))
-	for i, dep := range deps {
-		depCopy := make([]byte, len(dep))
-		copy(depCopy, dep)
-		depsCopy[i] = depCopy
-	}
+	depsCopy := make([]Name, len(deps))
+	copy(depsCopy, deps)
 	sort.Slice(depsCopy, func(i, j int) bool {
-		return bytes.Compare(depsCopy[i], depsCopy[j]) < 0
+		return depsCopy[i].Name() < depsCopy[j].Name()
 	})
 
 	result, err := session.hcas.db.Exec(
@@ -92,14 +87,14 @@ func (ow *hcasObjectWriter) Close() error {
 	if err != nil {
 		return err
 	}
-	name := ow.hsh.Sum(nil)
+	name := NewName(string(ow.hsh.Sum(nil)))
 
 	// Insert into temp objects to ensure we don't lose track of file data in case
 	// of failure.
 	db := ow.session.hcas.db
 	_, err = db.Exec(
 		"INSERT INTO temp_objects (name) VALUES (?)",
-		name,
+		name.Name(),
 	)
 	if err != nil {
 		return err
@@ -115,7 +110,7 @@ func (ow *hcasObjectWriter) Close() error {
 
 	// Check if object already exists
 	var existingObjectId int64
-	err = db.QueryRow("SELECT id FROM objects WHERE name = ?", name).Scan(&existingObjectId)
+	err = db.QueryRow("SELECT id FROM objects WHERE name = ?", name.Name()).Scan(&existingObjectId)
 	if err == nil {
 		// If it does clear the temp file and we're done
 		err = os.Remove(tempFilePath)
@@ -146,7 +141,7 @@ func (ow *hcasObjectWriter) Close() error {
 			return err
 		}
 
-		ow.name = name
+		ow.name = &name
 		return nil
 	} else if err != sql.ErrNoRows {
 		db.Exec("ROLLBACK")
@@ -154,7 +149,7 @@ func (ow *hcasObjectWriter) Close() error {
 	}
 
 	// Add newly created object to metadata
-	result, err := db.Exec("INSERT INTO objects (name, ref_count) VALUES (?, 1)", name)
+	result, err := db.Exec("INSERT INTO objects (name, ref_count) VALUES (?, 1)", name.Name())
 	if err != nil {
 		db.Exec("ROLLBACK")
 		return err
@@ -179,7 +174,7 @@ func (ow *hcasObjectWriter) Close() error {
 
 	// Create object dependencies
 	for _, dep := range ow.deps {
-		row := db.QueryRow("SELECT id FROM objects WHERE name = ?", dep)
+		row := db.QueryRow("SELECT id FROM objects WHERE name = ?", dep.Name())
 
 		var dep_id int64
 		err = row.Scan(&dep_id)
@@ -221,11 +216,11 @@ UPDATE objects SET ref_count = ref_count + 1 WHERE id = ?;
 		return err
 	}
 
-	fmt.Printf("Object name: %s\n", NameHex(name))
-	ow.name = name
+	fmt.Printf("Object name: %s\n", name.HexName())
+	ow.name = &name
 	return nil
 }
 
-func (ow *hcasObjectWriter) Name() []byte {
+func (ow *hcasObjectWriter) Name() *Name {
 	return ow.name
 }
