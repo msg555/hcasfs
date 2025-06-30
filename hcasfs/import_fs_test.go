@@ -270,7 +270,7 @@ func TestImportPathWithLargeFile(t *testing.T) {
 	}
 
 	if largeEntry.Inode.Size != uint64(len(largeContent)) {
-		t.Errorf("Large file size mismatch: got %d, want %d", 
+		t.Errorf("Large file size mismatch: got %d, want %d",
 			largeEntry.Inode.Size, len(largeContent))
 	}
 }

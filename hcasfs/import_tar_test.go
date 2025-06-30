@@ -508,7 +508,7 @@ func TestImportTarHardLinks(t *testing.T) {
 	}
 
 	if string(originalData) != string(hardlinkData) {
-		t.Errorf("Hard link content differs from original: %q vs %q", 
+		t.Errorf("Hard link content differs from original: %q vs %q",
 			string(hardlinkData), string(originalData))
 	}
 
@@ -725,7 +725,7 @@ func TestImportTarInvalidNames(t *testing.T) {
 	os.Stderr = w
 
 	rootName, err := ImportTar(session, reader)
-	
+
 	w.Close()
 	os.Stderr = oldStderr
 
@@ -894,7 +894,7 @@ func TestImportTarLargeFile(t *testing.T) {
 	}
 
 	if fileEntry.Inode.Size != uint64(len(largeContent)) {
-		t.Errorf("Large file size mismatch: got %d, want %d", 
+		t.Errorf("Large file size mismatch: got %d, want %d",
 			fileEntry.Inode.Size, len(largeContent))
 	}
 }

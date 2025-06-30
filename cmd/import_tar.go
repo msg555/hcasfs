@@ -47,8 +47,8 @@ func main() {
 		defer file.Close()
 
 		// Check if it's a gzipped tar file
-		if strings.HasSuffix(strings.ToLower(tarFilePath), ".gz") || 
-		   strings.HasSuffix(strings.ToLower(tarFilePath), ".tgz") {
+		if strings.HasSuffix(strings.ToLower(tarFilePath), ".gz") ||
+			strings.HasSuffix(strings.ToLower(tarFilePath), ".tgz") {
 			gzReader, err := gzip.NewReader(file)
 			if err != nil {
 				log.Fatal("failed to create gzip reader: ", err)

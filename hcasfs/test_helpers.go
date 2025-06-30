@@ -17,17 +17,17 @@ type testEnvironment struct {
 func createTestEnvironment(t *testing.T) *testEnvironment {
 	// Create a temporary directory for the HCAS store
 	tempDir := t.TempDir()
-	
+
 	store, err := hcas.CreateHcas(tempDir)
 	if err != nil {
 		t.Fatalf("Failed to create HCAS store: %v", err)
 	}
-	
+
 	session, err := store.CreateSession()
 	if err != nil {
 		t.Fatalf("Failed to create HCAS session: %v", err)
 	}
-	
+
 	return &testEnvironment{
 		store:   store,
 		session: session,
@@ -47,6 +47,6 @@ func readObjectData(store hcas.Hcas, name hcas.Name) ([]byte, error) {
 		return nil, err
 	}
 	defer file.Close()
-	
+
 	return io.ReadAll(file)
 }

@@ -89,14 +89,14 @@ func TestDirEntryEncodeDecodeRoundTrip(t *testing.T) {
 			name: "block device",
 			dirEntry: DirEntry{
 				Inode: InodeData{
-					Mode: unix.S_IFBLK | 0660,
-					Uid:  0,
-					Gid:  6, // disk group
-					Dev:  0x0801, // major=8, minor=1
-					Atim: 1640995200000000000,
-					Mtim: 1640995200000000000,
-					Ctim: 1640995200000000000,
-					Size: 0,
+					Mode:    unix.S_IFBLK | 0660,
+					Uid:     0,
+					Gid:     6,      // disk group
+					Dev:     0x0801, // major=8, minor=1
+					Atim:    1640995200000000000,
+					Mtim:    1640995200000000000,
+					Ctim:    1640995200000000000,
+					Size:    0,
 					ObjName: nil, // block devices don't have object data
 				},
 				FileName:         "sda1",
@@ -109,14 +109,14 @@ func TestDirEntryEncodeDecodeRoundTrip(t *testing.T) {
 			name: "character device",
 			dirEntry: DirEntry{
 				Inode: InodeData{
-					Mode: unix.S_IFCHR | 0666,
-					Uid:  0,
-					Gid:  5, // tty group
-					Dev:  0x0501, // major=5, minor=1
-					Atim: 1640995200000000000,
-					Mtim: 1640995200000000000,
-					Ctim: 1640995200000000000,
-					Size: 0,
+					Mode:    unix.S_IFCHR | 0666,
+					Uid:     0,
+					Gid:     5,      // tty group
+					Dev:     0x0501, // major=5, minor=1
+					Atim:    1640995200000000000,
+					Mtim:    1640995200000000000,
+					Ctim:    1640995200000000000,
+					Size:    0,
 					ObjName: nil, // char devices don't have object data
 				},
 				FileName:         "console",
@@ -129,14 +129,14 @@ func TestDirEntryEncodeDecodeRoundTrip(t *testing.T) {
 			name: "fifo",
 			dirEntry: DirEntry{
 				Inode: InodeData{
-					Mode: unix.S_IFIFO | 0644,
-					Uid:  1000,
-					Gid:  1000,
-					Dev:  0,
-					Atim: 1640995200000000000,
-					Mtim: 1640995200000000000,
-					Ctim: 1640995200000000000,
-					Size: 0,
+					Mode:    unix.S_IFIFO | 0644,
+					Uid:     1000,
+					Gid:     1000,
+					Dev:     0,
+					Atim:    1640995200000000000,
+					Mtim:    1640995200000000000,
+					Ctim:    1640995200000000000,
+					Size:    0,
 					ObjName: nil, // fifos don't have object data
 				},
 				FileName:         "mypipe",
@@ -209,12 +209,12 @@ func TestDirEntryEncodeDecodeRoundTrip(t *testing.T) {
 				t.Errorf("Size mismatch: got %d, want %d", decoded.Inode.Size, tt.dirEntry.Inode.Size)
 			}
 			if (decoded.Inode.ObjName == nil) != (tt.dirEntry.Inode.ObjName == nil) {
-				t.Errorf("ObjName nil status mismatch: got %v, want %v", 
+				t.Errorf("ObjName nil status mismatch: got %v, want %v",
 					decoded.Inode.ObjName == nil, tt.dirEntry.Inode.ObjName == nil)
 			}
 			if decoded.Inode.ObjName != nil && tt.dirEntry.Inode.ObjName != nil {
 				if decoded.Inode.ObjName.HexName() != tt.dirEntry.Inode.ObjName.HexName() {
-					t.Errorf("ObjName mismatch: got %s, want %s", 
+					t.Errorf("ObjName mismatch: got %s, want %s",
 						decoded.Inode.ObjName.HexName(), tt.dirEntry.Inode.ObjName.HexName())
 				}
 			}
@@ -222,7 +222,7 @@ func TestDirEntryEncodeDecodeRoundTrip(t *testing.T) {
 				t.Errorf("FileName mismatch: got %s, want %s", decoded.FileName, tt.dirEntry.FileName)
 			}
 			if decoded.ParentDepIndex != tt.dirEntry.ParentDepIndex {
-				t.Errorf("ParentDepIndex mismatch: got %d, want %d", 
+				t.Errorf("ParentDepIndex mismatch: got %d, want %d",
 					decoded.ParentDepIndex, tt.dirEntry.ParentDepIndex)
 			}
 		})
@@ -231,7 +231,7 @@ func TestDirEntryEncodeDecodeRoundTrip(t *testing.T) {
 
 func TestInodeFromStat(t *testing.T) {
 	objName := hcas.NewName("0123456789abcdef0123456789abcdef")
-	
+
 	stat := unix.Stat_t{
 		Mode: unix.S_IFREG | 0644,
 		Uid:  1000,
@@ -507,7 +507,7 @@ func TestLookupChildCRCCollisions(t *testing.T) {
 	// These strings have the same CRC32 checksum (found through testing)
 	// This is a bit artificial, but tests the collision handling code
 	collisionFiles := []string{"test1", "test2"}
-	
+
 	for _, filename := range collisionFiles {
 		obj, err := session.CreateObject([]byte(filename + " content"))
 		if err != nil {

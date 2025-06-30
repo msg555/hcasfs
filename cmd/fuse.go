@@ -50,16 +50,16 @@ func main() {
 	log.Print("Mounting root object ", rootName.HexName())
 
 	hm, err := fusefs.CreateServer(mountPoint, hcasRootDir, hcasRootName)
-  if err != nil {
-    log.Fatal("failed to create mount", err)
-  }
+	if err != nil {
+		log.Fatal("failed to create mount", err)
+	}
 
-  sigs := make(chan os.Signal, 1)
-  signal.Notify(sigs, unix.SIGINT, unix.SIGTERM)
-  fmt.Println("signal received: ", <-sigs)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, unix.SIGINT, unix.SIGTERM)
+	fmt.Println("signal received: ", <-sigs)
 
-  err = hm.Close()
-  if err != nil {
-    log.Fatal("Could not unmount:", err)
-  }
+	err = hm.Close()
+	if err != nil {
+		log.Fatal("Could not unmount:", err)
+	}
 }

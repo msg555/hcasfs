@@ -129,22 +129,22 @@ func TestComplexDirectoryStructureIntegrity(t *testing.T) {
 
 	// Create multiple levels of nesting with various file types
 	structure := map[string]string{
-		"root.txt":                    "root content",
-		"dir1/file1.txt":             "content in dir1",
-		"dir1/subdir/nested.txt":     "deeply nested content",
-		"dir2/file2.txt":             "content in dir2",
-		"dir2/subdir/another.txt":    "another nested file",
-		"dir3/empty_subdir/.keep":    "",
-		"shared_content1.txt":        "shared content",
-		"dir1/shared_content2.txt":   "shared content",
-		"dir2/shared_content3.txt":   "shared content",
+		"root.txt":                 "root content",
+		"dir1/file1.txt":           "content in dir1",
+		"dir1/subdir/nested.txt":   "deeply nested content",
+		"dir2/file2.txt":           "content in dir2",
+		"dir2/subdir/another.txt":  "another nested file",
+		"dir3/empty_subdir/.keep":  "",
+		"shared_content1.txt":      "shared content",
+		"dir1/shared_content2.txt": "shared content",
+		"dir2/shared_content3.txt": "shared content",
 	}
 
 	// Create all files and directories
 	for path, content := range structure {
 		fullPath := filepath.Join(tempDir, path)
 		dir := filepath.Dir(fullPath)
-		
+
 		err := os.MkdirAll(dir, 0755)
 		if err != nil {
 			t.Fatalf("Failed to create directory %s: %v", dir, err)
@@ -176,7 +176,7 @@ func TestComplexDirectoryStructureIntegrity(t *testing.T) {
 	// Verify all files are accessible and have correct content
 	verifyFileInDirectory(t, env.store, rootName, "root.txt", "root content")
 	verifyFileInDirectory(t, env.store, rootName, "shared_content1.txt", "shared content")
-	
+
 	// Navigate to subdirectories and verify files
 	dir1Name := getDirectoryObject(t, env.store, rootName, "dir1")
 	verifyFileInDirectory(t, env.store, dir1Name, "file1.txt", "content in dir1")
@@ -391,7 +391,7 @@ func createTarFromHCAS(t *testing.T, session hcas.Session, rootName *hcas.Name) 
 	// For this test, we'll create a minimal tar with similar structure
 	// This is mainly to test the round-trip concept
 	now := time.Now()
-	
+
 	entries := []tarTestEntry{
 		{
 			Name:       "file1.txt",

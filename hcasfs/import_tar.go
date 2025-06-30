@@ -1,12 +1,12 @@
 package hcasfs
 
 import (
-	"io"
-	"path/filepath"
-	"fmt"
-	"sort"
-	"os"
 	"archive/tar"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
 
 	"github.com/go-errors/errors"
 
@@ -16,7 +16,7 @@ import (
 
 func tarModeToUnixMode(tarMode int64, typeflag byte) uint32 {
 	mode := uint32(tarMode & 0777)
-	
+
 	switch typeflag {
 	case tar.TypeReg, tar.TypeRegA, tar.TypeLink:
 		mode |= unix.S_IFREG
@@ -33,7 +33,7 @@ func tarModeToUnixMode(tarMode int64, typeflag byte) uint32 {
 	default:
 		mode |= unix.S_IFREG
 	}
-	
+
 	return mode
 }
 
@@ -43,14 +43,14 @@ func InodeFromTarHeader(header *tar.Header) *InodeData {
 		size = uint64(len(header.Linkname))
 	}
 	return &InodeData{
-		Mode:    tarModeToUnixMode(header.Mode, header.Typeflag),
-		Uid:     uint32(header.Uid),
-		Gid:     uint32(header.Gid),
-		Dev:     0,
-		Atim:    uint64(header.AccessTime.UnixNano()),
-		Mtim:    uint64(header.ModTime.UnixNano()),
-		Ctim:    uint64(header.ChangeTime.UnixNano()),
-		Size:    size,
+		Mode: tarModeToUnixMode(header.Mode, header.Typeflag),
+		Uid:  uint32(header.Uid),
+		Gid:  uint32(header.Gid),
+		Dev:  0,
+		Atim: uint64(header.AccessTime.UnixNano()),
+		Mtim: uint64(header.ModTime.UnixNano()),
+		Ctim: uint64(header.ChangeTime.UnixNano()),
+		Size: size,
 	}
 }
 
@@ -108,12 +108,12 @@ type tarDirEntry struct {
 
 type hardlinkData struct {
 	fileEntry *tarDirEntry
-	linkname string
+	linkname  string
 }
 
 func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 	tr := tar.NewReader(tarReader)
-	
+
 	rootEntry := tarDirEntry{
 		children: make(map[string]*tarDirEntry),
 	}
@@ -141,7 +141,7 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 
 		dirPath := filepath.Dir(name)
 		fileEntry := tarDirEntry{
-			inode: *InodeFromTarHeader(header),
+			inode:    *InodeFromTarHeader(header),
 			treeSize: 1,
 		}
 
@@ -167,7 +167,7 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 		case tar.TypeLink:
 			hardlinks = append(hardlinks, hardlinkData{
 				fileEntry: &fileEntry,
-				linkname: header.Linkname,
+				linkname:  header.Linkname,
 			})
 
 		case tar.TypeChar:
@@ -224,7 +224,7 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 	for path := range dirEntries {
 		paths = append(paths, path)
 	}
-	
+
 	sort.Slice(paths, func(i, j int) bool {
 		return paths[i] > paths[j]
 	})
@@ -232,7 +232,7 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 	for _, dirPath := range paths {
 		dirBuilder := CreateDirBuilder()
 		dirEntry := dirEntries[dirPath]
-		
+
 		for filePath, child := range dirEntry.children {
 			dirBuilder.Insert(filePath, &child.inode, child.treeSize)
 		}
