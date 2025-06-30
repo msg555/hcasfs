@@ -170,7 +170,18 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 				linkname: header.Linkname,
 			})
 
-		// TODO: Handle support for block, char, fifo
+		case tar.TypeChar:
+			// Character device files don't need object data, just inode metadata
+			// Device major/minor numbers are stored in the Dev field of InodeData
+			fileEntry.inode.Dev = uint64(header.Devmajor)<<8 | uint64(header.Devminor)
+
+		case tar.TypeBlock:
+			// Block device files don't need object data, just inode metadata
+			// Device major/minor numbers are stored in the Dev field of InodeData
+			fileEntry.inode.Dev = uint64(header.Devmajor)<<8 | uint64(header.Devminor)
+
+		case tar.TypeFifo:
+			// FIFO (named pipe) files don't need object data, just inode metadata
 
 		default:
 			fmt.Fprintf(os.Stderr, "skipped unsupported file type '%s' (type %c)\n", name, header.Typeflag)
