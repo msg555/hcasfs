@@ -82,7 +82,8 @@ func CreateServer(
 		},
 		RefCount: 1,
 	}
-	copy(rootNode.Inode.ObjName[:], rootName)
+	rootNodeName := hcas.NewName(string(rootName))
+	rootNode.Inode.ObjName = &rootNodeName
 	hcasMount.inodeMap[1] = &rootNode
 
 	go func() {
@@ -202,8 +203,8 @@ func (hm *HcasMount) handleStatfsRequest(req *fuse.StatfsRequest) error {
 	return nil
 }
 
-func (hm *HcasMount) openFileByName(name []byte) (*os.File, error) {
-	nameHex := hcas.NameHex(name)
+func (hm *HcasMount) openFileByName(name *hcas.Name) (*os.File, error) {
+	nameHex := name.HexName()
 	return os.Open(filepath.Join(
 		hm.hcasDataDir,
 		nameHex[:2],

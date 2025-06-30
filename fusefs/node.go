@@ -112,7 +112,7 @@ func (hm *HcasMount) handleLookupRequest(req *fuse.LookupRequest) error {
 		return err
 	}
 
-	nodeFile, err := hm.openFileByName(inode.ObjName[:])
+	nodeFile, err := hm.openFileByName(inode.ObjName)
 	if err != nil {
 		return err
 	}

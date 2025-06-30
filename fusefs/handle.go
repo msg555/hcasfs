@@ -9,6 +9,7 @@ import (
 	"bazil.org/fuse"
 	"github.com/go-errors/errors"
 
+	"github.com/msg555/hcas/hcas"
 	"github.com/msg555/hcas/hcasfs"
 	"github.com/msg555/hcas/unix"
 )
@@ -48,14 +49,14 @@ func (hm *HcasMount) handleOpenRequest(req *fuse.OpenRequest) error {
 	var handleID fuse.HandleID
 	switch inode.Mode & unix.S_IFMT {
 	case unix.S_IFDIR:
-		handle, err := hm.CreateFileHandleDir(uint64(req.Node), inode.ObjName[:])
+		handle, err := hm.CreateFileHandleDir(uint64(req.Node), inode.ObjName)
 		if err != nil {
 			return err
 		}
 
 		handleID = hm.openHandle(handle)
 	case unix.S_IFREG:
-		handle, err := hm.CreateFileHandleReg(uint64(req.Node), inode.ObjName[:])
+		handle, err := hm.CreateFileHandleReg(uint64(req.Node), inode.ObjName)
 		if err != nil {
 			return err
 		}
@@ -72,7 +73,7 @@ func (hm *HcasMount) handleOpenRequest(req *fuse.OpenRequest) error {
 	return nil
 }
 
-func (hm *HcasMount) CreateFileHandleDir(inodeId uint64, objName []byte) (*FileHandleDir, error) {
+func (hm *HcasMount) CreateFileHandleDir(inodeId uint64, objName *hcas.Name) (*FileHandleDir, error) {
 	f, err := hm.openFileByName(objName)
 	if err != nil {
 		return nil, err
@@ -169,7 +170,7 @@ func (h *FileHandleDir) Read(req *fuse.ReadRequest) error {
 	return nil
 }
 
-func (hm *HcasMount) CreateFileHandleReg(inodeId uint64, objName []byte) (*FileHandleReg, error) {
+func (hm *HcasMount) CreateFileHandleReg(inodeId uint64, objName *hcas.Name) (*FileHandleReg, error) {
 	f, err := hm.openFileByName(objName)
 	if err != nil {
 		return nil, err
@@ -257,7 +258,7 @@ func (hm *HcasMount) handleReadlinkRequest(req *fuse.ReadlinkRequest) error {
 		return err
 	}
 
-	f, err := hm.openFileByName(inode.ObjName[:])
+	f, err := hm.openFileByName(inode.ObjName)
 	if err != nil {
 		return err
 	}

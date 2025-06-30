@@ -23,7 +23,14 @@ func getRootObject(hcasRootDir string, hcasRootLabel string) ([]byte, error) {
 		return nil, err
 	}
 
-	return s.GetLabel("image", hcasRootLabel)
+	name, err := s.GetLabel("image", hcasRootLabel)
+	if err != nil {
+		return nil, err
+	}
+	if name == nil {
+		return nil, fmt.Errorf("label not found: %s", hcasRootLabel)
+	}
+	return []byte(name.Name()), nil
 }
 
 func main() {
@@ -39,7 +46,8 @@ func main() {
 		log.Fatal("failed to find root object name: ", err)
 	}
 
-	log.Print("Mounting root object ", hcas.NameHex(hcasRootName))
+	rootName := hcas.NewName(string(hcasRootName))
+	log.Print("Mounting root object ", rootName.HexName())
 
 	hm, err := fusefs.CreateServer(mountPoint, hcasRootDir, hcasRootName)
   if err != nil {

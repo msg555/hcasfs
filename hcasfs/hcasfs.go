@@ -152,6 +152,8 @@ func (d *DirEntry) Encode() []byte {
 	binary.BigEndian.PutUint64(buf[36:], d.Inode.Ctim)
 	binary.BigEndian.PutUint64(buf[44:], d.Inode.Size)
 	if d.Inode.ObjName != nil {
+		// TODO: Don't need to reserve space for modes that don't have objects
+		// associated.
 		copy(buf[52:], d.Inode.ObjName.Name())
 	}
 	binary.BigEndian.PutUint64(buf[84:], d.ParentDepIndex)
