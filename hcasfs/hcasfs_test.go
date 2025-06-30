@@ -1,11 +1,9 @@
 package hcasfs
 
 import (
-	"archive/tar"
 	"bytes"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/msg555/hcas/hcas"
 	"github.com/msg555/hcas/unix"
@@ -402,8 +400,8 @@ func TestDirBuilder(t *testing.T) {
 		t.Errorf("Expected 5 entries, got %d", len(builder.DirEntries))
 	}
 
-	if builder.TotalTreeSize != 9 { // 1 (self) + 1 + 1 + 5 + 1 + 1
-		t.Errorf("Expected TotalTreeSize 9, got %d", builder.TotalTreeSize)
+	if builder.TotalTreeSize != 10 { // 1 (self) + 1 + 1 + 5 + 1 + 1 = 10
+		t.Errorf("Expected TotalTreeSize 10, got %d", builder.TotalTreeSize)
 	}
 
 	// Build the directory

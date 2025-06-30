@@ -245,7 +245,7 @@ func TestMixedImportMethods(t *testing.T) {
 			Mode:       0644,
 			Uid:        1000,
 			Gid:        1000,
-			Size:       12,
+			Size:       11,
 			ModTime:    now,
 			AccessTime: now,
 			ChangeTime: now,
