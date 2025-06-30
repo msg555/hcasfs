@@ -37,7 +37,6 @@ jobs:
     
     - name: Build binaries
       run: |
-        go build -o bin/main ./cmd/main.go
         go build -o bin/import ./cmd/import.go
         go build -o bin/fuse ./cmd/fuse.go
         go build -o bin/gc ./cmd/gc.go
