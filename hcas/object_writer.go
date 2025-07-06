@@ -11,8 +11,11 @@ import (
 	"sort"
 )
 
+const objectWriterBufferSize = 1 << 16
+
 type hcasObjectWriter struct {
 	session    *hcasSession
+	buffer     []byte
 	tempFileId int64
 	file       *os.File
 	hsh        hash.Hash
@@ -28,36 +31,68 @@ func createObjectStream(session *hcasSession, deps ...Name) (ObjectWriter, error
 		return depsCopy[i].Name() < depsCopy[j].Name()
 	})
 
-	result, err := session.hcas.db.Exec(
-		"INSERT INTO temp_files (session_id) VALUES (?);",
-		session.sessionId,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	tempFileId, err := result.LastInsertId()
-	if err != nil {
-		return nil, err
-	}
-
-	tempFilePath := session.hcas.tempFilePath(tempFileId)
-	file, err := os.Create(tempFilePath)
-	if err != nil {
-		return nil, err
-	}
-
 	return &hcasObjectWriter{
 		session:    session,
-		tempFileId: tempFileId,
-		file:       file,
+		buffer:     make([]byte, 0, objectWriterBufferSize),
+		tempFileId: 0,
+		file:       nil,
 		hsh:        sha256.New(),
 		deps:       depsCopy,
 		name:       nil,
 	}, nil
 }
 
+func (ow *hcasObjectWriter) makeTempFile() error {
+	result, err := ow.session.hcas.db.Exec(
+		"INSERT INTO temp_files (session_id) VALUES (?);",
+		ow.session.sessionId,
+	)
+	if err != nil {
+		return err
+	}
+
+	ow.tempFileId, err = result.LastInsertId()
+	if err != nil {
+		return err
+	}
+
+	tempFilePath := ow.session.hcas.tempFilePath(ow.tempFileId)
+	ow.file, err = os.Create(tempFilePath)
+	if err != nil {
+		return err
+	}
+
+	// Drain existing buffer into new temp file
+	buf := ow.buffer
+	ow.buffer = nil
+	amount := 0
+	for amount < len(buf) {
+		n, err := ow.file.Write(buf[amount:])
+		if err != nil {
+			return err
+		}
+		amount += n
+	}
+
+	return err
+}
+
 func (ow *hcasObjectWriter) Write(p []byte) (int, error) {
+	if ow.buffer != nil {
+		bufLen := len(ow.buffer)
+		if bufLen + len(p) <= cap(ow.buffer) {
+			// Happy path, data fits entirely in buffer
+			ow.buffer = ow.buffer[:bufLen + len(p)]
+			copy(ow.buffer[bufLen:], p)
+			ow.hsh.Write(p)
+			return len(p), nil
+		}
+
+		// Buffer full, create backing temp file
+		ow.makeTempFile()
+	}
+
+	// If already made a backing temp file just write to that
 	n, err := ow.file.Write(p)
 	ow.hsh.Write(p[:n])
 	return n, err
@@ -82,12 +117,18 @@ func (ow *hcasObjectWriter) Close() error {
 					 - Commit
 	*/
 
+	name := NewName(string(ow.hsh.Sum(nil)))
+
+	// Fast path: if working with a small object check if it already exists.
+	if ow.file == nil {
+		ow.makeTempFile()
+	}
+
 	// Close out the file and compute the final hash
 	err := ow.file.Close()
 	if err != nil {
 		return err
 	}
-	name := NewName(string(ow.hsh.Sum(nil)))
 
 	// Insert into temp objects to ensure we don't lose track of file data in case
 	// of failure.

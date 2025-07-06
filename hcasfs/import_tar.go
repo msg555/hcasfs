@@ -159,7 +159,6 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 
 		case tar.TypeSymlink:
 			objName, err = importTarSymlink(hs, header.Linkname)
-			fmt.Printf("Got symlink to %s %s\n", header.Linkname, objName.HexName())
 			if err != nil {
 				return nil, err
 			}

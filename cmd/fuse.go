@@ -5,6 +5,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"flag"
+
+	"bazil.org/fuse"
 
 	"github.com/msg555/hcas/fusefs"
 	"github.com/msg555/hcas/hcas"
@@ -34,13 +37,18 @@ func getRootObject(hcasRootDir string, hcasRootLabel string) ([]byte, error) {
 }
 
 func main() {
-	if len(os.Args) != 4 {
+	flagSet := flag.NewFlagSet("hcas-fuse", flag.ExitOnError)
+	flagAllowOther := flagSet.Bool("allow-other", false, "Allow others to see mount")
+	flagSet.Parse(os.Args[1:])
+
+	args := flagSet.Args()
+	if len(args) != 3 {
 		log.Fatal("Usage: mount mount_point hcas_root object_label")
 	}
 
-	mountPoint := os.Args[1]
-	hcasRootDir := os.Args[2]
-	hcasRootLabel := os.Args[3]
+	mountPoint := args[0]
+	hcasRootDir := args[1]
+	hcasRootLabel := args[2]
 	hcasRootName, err := getRootObject(hcasRootDir, hcasRootLabel)
 	if err != nil {
 		log.Fatal("failed to find root object name: ", err)
@@ -49,7 +57,12 @@ func main() {
 	rootName := hcas.NewName(string(hcasRootName))
 	log.Print("Mounting root object ", rootName.HexName())
 
-	hm, err := fusefs.CreateServer(mountPoint, hcasRootDir, hcasRootName)
+	var options []fuse.MountOption
+	if *flagAllowOther {
+		options = append(options, fuse.AllowOther())
+	}
+
+	hm, err := fusefs.CreateServer(mountPoint, hcasRootDir, hcasRootName, options...)
 	if err != nil {
 		log.Fatal("failed to create mount", err)
 	}

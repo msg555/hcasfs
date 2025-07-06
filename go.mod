@@ -12,6 +12,8 @@ require (
 	golang.org/x/sys v0.33.0
 )
 
+replace bazil.org/fuse => github.com/msg555/fuse v0.0.0-20250705003504-9e595cac7919
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

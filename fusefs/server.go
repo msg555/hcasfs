@@ -54,10 +54,13 @@ func CreateServer(
 	rootName []byte,
 	options ...fuse.MountOption,
 ) (*HcasMount, error) {
-	options = append(options, fuse.Subtype("hcasfs"), fuse.DefaultPermissions())
-	options = append(options, fuse.Subtype("hcasfs"), fuse.ReadOnly())
-	options = append(options, fuse.Subtype("hcasfs"), fuse.CacheSymlinks())
-	options = append(options, fuse.Subtype("hcasfs"), fuse.Subtype("hcasfs"))
+	options = append(
+		options, fuse.Subtype("hcasfs"),
+		fuse.DefaultPermissions(),
+		fuse.DefaultPermissions(),
+		fuse.ReadOnly(),
+		fuse.CacheSymlinks(),
+	)
 
 	// Want to enable kernel_cache but there's no option defined in fuse package
 
@@ -78,7 +81,7 @@ func CreateServer(
 	}
 	rootNode := InodeReference{
 		Inode: hcasfs.InodeData{
-			Mode: unix.S_IFDIR | 0o777,
+			Mode: unix.S_IFDIR | 0o755,
 		},
 		RefCount: 1,
 	}
@@ -135,18 +138,13 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
 		err = hm.handleGetattrRequest(req.(*fuse.GetattrRequest))
 	case *fuse.ReadlinkRequest:
 		err = hm.handleReadlinkRequest(req.(*fuse.ReadlinkRequest))
+/*
 	case *fuse.GetxattrRequest:
 		err = hm.handleGetxattrRequest(req.(*fuse.GetxattrRequest))
 	case *fuse.ListxattrRequest:
 		err = hm.handleListxattrRequest(req.(*fuse.ListxattrRequest))
-		/*
-		   case *fuse.SetattrRequest:
-		     nd.handleSetattrRequest(req.(*fuse.SetattrRequest))
-		   case *fuse.CreateRequest:
-		     nd.handleCreateRequest(req.(*fuse.CreateRequest))
-		   case *fuse.RemoveRequest:
-		     nd.handleRemoveRequest(req.(*fuse.RemoveRequest))
-		*/
+*/
+
 	// Handle methods
 	case *fuse.ReleaseRequest:
 		err = hm.handleReleaseRequest(req.(*fuse.ReleaseRequest))
@@ -154,28 +152,15 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
 		err = hm.handleReadRequest(req.(*fuse.ReadRequest))
 	case *fuse.FlushRequest:
 		err = hm.handleFlushRequest(req.(*fuse.FlushRequest))
-		/*
-		   case *fuse.WriteRequest:
-		     nd.handleWriteRequest(req.(*fuse.WriteRequest))
-		   case *fuse.IoctlRequest:
-		     nd.handleIoctlRequest(req.(*fuse.IoctlRequest))
-		*/
-	// Not implemented/rely on default kernel level behavior. These failures are
-	// cached by the fuse-driver and future calls will be automatically skipped.
-	case *fuse.PollRequest:
-		err = FuseError{
-			source: errors.New("not implemented"),
-			errno:  unix.ENOSYS,
-		}
-
-		/*
-		   case *fuse.DestroyRequest:
-		     fmt.Println("TODO: Got destroy request")
-		*/
+	case *fuse.IoctlRequest:
+		err = hm.handleIoctlRequest(req.(*fuse.IoctlRequest))
 
 	default:
 		fmt.Println("WARNING NOT IMPLEMENTED:", req)
-		err = errors.New("not implemented")
+		err = FuseError{
+			source: errors.New("not implemented"),
+			errno: unix.ENOSYS,
+		}
 	}
 
 	if err != nil {

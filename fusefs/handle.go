@@ -279,3 +279,27 @@ func (hm *HcasMount) handleReadlinkRequest(req *fuse.ReadlinkRequest) error {
 	req.Respond(string(buf[:bytesRead]))
 	return nil
 }
+
+const (
+	FS_IOC_GETFLAGS = 0x80086601
+)
+
+func (hm *HcasMount) handleIoctlRequest(req *fuse.IoctlRequest) error {
+	switch req.Cmd {
+		case FS_IOC_GETFLAGS:
+			var buf [4]byte
+			var iocFlags uint32 = 0
+			binary.NativeEndian.PutUint32(buf[:], iocFlags)
+			req.Respond(&fuse.IoctlResponse{
+				Data: buf[:],
+			})
+
+		default:
+			return FuseError{
+				source: errors.New("unknown ioctl"),
+				errno: unix.ENOSYS,
+			}
+	}
+
+	return nil
+}
