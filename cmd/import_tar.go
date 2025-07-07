@@ -7,15 +7,37 @@ import (
 	"log"
 	"os"
 	"strings"
+	"runtime/pprof"
 
 	"github.com/go-errors/errors"
 	"github.com/msg555/hcas/hcas"
 	"github.com/msg555/hcas/hcasfs"
 )
 
+func startTrace() (func(), error) {
+	f, err := os.Create("trace.out")
+	if err != nil {
+		return nil, err
+	}
+	pprof.StartCPUProfile(f)
+
+	return func() {
+		pprof.StopCPUProfile()
+		f.Close()
+	}, nil
+}
+
 func main() {
 	if len(os.Args) != 3 {
 		log.Fatal("Usage: import_tar <tar_file> <label_name>")
+	}
+
+	if true {
+		stopTrace, err := startTrace()
+		if err != nil {
+			log.Fatal("Failed to setup trace: ", err)
+		}
+		defer stopTrace()
 	}
 
 	tarFilePath := os.Args[1]

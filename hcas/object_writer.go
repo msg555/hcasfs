@@ -3,11 +3,13 @@ package hcas
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 )
 
@@ -24,41 +26,66 @@ type hcasObjectWriter struct {
 }
 
 func createObjectStream(session *hcasSession, deps ...Name) (ObjectWriter, error) {
-	// TODO: Is this really the best way to copy this?
+	return createObjectStreamWithBuffer(
+		session,
+		make([]byte, 0, objectWriterBufferSize),
+		deps...,
+	)
+}
+
+func createObjectStreamWithBuffer(session *hcasSession, buffer []byte, deps ...Name) (ObjectWriter, error) {
 	depsCopy := make([]Name, len(deps))
 	copy(depsCopy, deps)
 	sort.Slice(depsCopy, func(i, j int) bool {
 		return depsCopy[i].Name() < depsCopy[j].Name()
 	})
 
+	hsh := sha256.New()
+
+	var numDeps [4]byte
+	binary.BigEndian.PutUint32(numDeps[:], uint32(len(deps)))
+	hsh.Write(numDeps[:])
+	for _, dep := range depsCopy {
+		hsh.Write([]byte(dep.Name()))
+	}
+
+	hsh.Write(buffer)
+
 	return &hcasObjectWriter{
-		session:    session,
-		buffer:     make([]byte, 0, objectWriterBufferSize),
-		tempFileId: 0,
-		file:       nil,
-		hsh:        sha256.New(),
-		deps:       depsCopy,
-		name:       nil,
+		session: session,
+		buffer:  buffer,
+		file:    nil,
+		hsh:     hsh,
+		deps:    depsCopy,
+		name:    nil,
 	}, nil
 }
 
 func (ow *hcasObjectWriter) makeTempFile() error {
-	result, err := ow.session.hcas.db.Exec(
-		"INSERT INTO temp_files (session_id) VALUES (?);",
-		ow.session.sessionId,
-	)
-	if err != nil {
-		return err
-	}
+	for {
+		file, err := os.CreateTemp(
+			filepath.Join(ow.session.hcas.basePath, TempPath),
+			"tmp-*",
+		)
+		if err != nil {
+			return err
+		}
 
-	ow.tempFileId, err = result.LastInsertId()
-	if err != nil {
-		return err
-	}
+		err = lockFile(file)
+		if err != nil {
+			file.Close()
+			return err
+		}
 
-	tempFilePath := ow.session.hcas.tempFilePath(ow.tempFileId)
-	ow.file, err = os.Create(tempFilePath)
-	if err != nil {
+		_, err = os.Stat(file.Name())
+		if err == nil {
+			ow.file = file
+			break
+		}
+		file.Close()
+		if os.IsNotExist(err) {
+			continue
+		}
 		return err
 	}
 
@@ -74,15 +101,15 @@ func (ow *hcasObjectWriter) makeTempFile() error {
 		amount += n
 	}
 
-	return err
+	return nil
 }
 
 func (ow *hcasObjectWriter) Write(p []byte) (int, error) {
 	if ow.buffer != nil {
 		bufLen := len(ow.buffer)
-		if bufLen + len(p) <= cap(ow.buffer) {
+		if bufLen+len(p) <= cap(ow.buffer) {
 			// Happy path, data fits entirely in buffer
-			ow.buffer = ow.buffer[:bufLen + len(p)]
+			ow.buffer = ow.buffer[:bufLen+len(p)]
 			copy(ow.buffer[bufLen:], p)
 			ow.hsh.Write(p)
 			return len(p), nil
@@ -105,109 +132,98 @@ func (ow *hcasObjectWriter) Close() error {
 		 * 1. Calculate name from content hash and dependencies
 		 * 2. Insert new record into temp_objects with calculated name
 			 3. Start exclusive transaction
-				 a. Check if object already exists
-					 - Attach existing object to session
-					 - Clean up temp_files, temp_object entries
+				 a. Delete temp object record
+				 b. If extending object lease succeeds
+				 	 - Clean up temp file
 					 - Commit
-	       b. Otherwise
+				 c. Otherwise
 					 - Create new object entry
-					 - Attach new object to session
-					 - Clean up temp_files, temp_object entries
+					 - Setup object deps
 					 - Rename temp file into position
 					 - Commit
 	*/
 
 	name := NewName(string(ow.hsh.Sum(nil)))
 
-	// Fast path: if working with a small object check if it already exists.
-	if ow.file == nil {
-		ow.makeTempFile()
-	}
-
-	// Close out the file and compute the final hash
-	err := ow.file.Close()
-	if err != nil {
-		return err
-	}
-
-	// Insert into temp objects to ensure we don't lose track of file data in case
-	// of failure.
 	db := ow.session.hcas.db
-	_, err = db.Exec(
-		"INSERT INTO temp_objects (name) VALUES (?)",
+	result, err := db.Exec(
+		"INSERT INTO temp_objects (name) VALUES (?);",
 		name.Name(),
 	)
 	if err != nil {
 		return err
 	}
-
-	tempFilePath := ow.session.hcas.tempFilePath(ow.tempFileId)
-
-	// Start exclusive transaction
-	_, err = db.Exec("BEGIN IMMEDIATE")
+	tempObjectId, err := result.LastInsertId()
 	if err != nil {
 		return err
 	}
 
-	// Check if object already exists
-	var existingObjectId int64
-	err = db.QueryRow("SELECT id FROM objects WHERE name = ?", name.Name()).Scan(&existingObjectId)
-	if err == nil {
-		// If it does clear the temp file and we're done
-		err = os.Remove(tempFilePath)
+	// Create the containing data dirs optimistically
+	objectDir, objectPath := ow.session.hcas.dataFilePath(name)
+	err = os.Mkdir(objectDir, 0o777)
+	if err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+
+	// Ensure file is synced if we created one
+	if ow.file != nil {
+		err = ow.file.Sync()
 		if err != nil {
-			db.Exec("ROLLBACK")
 			return err
 		}
+	}
 
-		_, err = db.Exec("DELETE FROM temp_files WHERE id = ?", ow.tempFileId)
-		if err != nil {
-			db.Exec("ROLLBACK")
-			return err
-		}
+	leaseTime := calculateLeaseTime(defaultObjectLease)
 
-		// Attach existing object to session
-		_, err = db.Exec(
-			"INSERT INTO session_deps (session_id, object_id) VALUES (?, ?)",
-			ow.session.sessionId,
-			existingObjectId,
-		)
-		if err != nil {
-			db.Exec("ROLLBACK")
-			return err
-		}
+	// Start exclusive transaction
+	result, err = db.Exec(`
+BEGIN IMMEDIATE;
 
+DELETE FROM temp_objects WHERE id=?;
+
+UPDATE objects SET lease_time=MAX(?, lease_time+1) WHERE name = ?;
+`, tempObjectId, leaseTime, name.Name())
+	if err != nil {
+		db.Exec("ROLLBACK")
+		return err
+	}
+
+	// Handle case where object already exists
+	rowCount, err := result.RowsAffected()
+	if err != nil {
+		db.Exec("ROLLBACK")
+		return err
+	}
+	if rowCount > 0 {
 		_, err = db.Exec("COMMIT")
 		if err != nil {
 			return err
 		}
 
+		// Close temp file if we created one
+		if ow.file != nil {
+			err = ow.file.Close()
+			if err != nil {
+				return err
+			}
+		}
+
 		ow.name = &name
 		return nil
-	} else if err != sql.ErrNoRows {
-		db.Exec("ROLLBACK")
-		return err
 	}
 
-	// Add newly created object to metadata
-	result, err := db.Exec("INSERT INTO objects (name, ref_count) VALUES (?, 1)", name.Name())
+	// Object doesn't already exists, create it
+	result, err = db.Exec(
+		"INSERT INTO objects (name, ref_count, lease_time) VALUES (?, 1, ?)",
+		name.Name(),
+		leaseTime,
+	)
 	if err != nil {
 		db.Exec("ROLLBACK")
 		return err
 	}
 
 	objectId, err := result.LastInsertId()
-	if err != nil {
-		db.Exec("ROLLBACK")
-		return err
-	}
-
-	// Attach newly created object to session
-	_, err = db.Exec(
-		"INSERT INTO session_deps (session_id, object_id) VALUES (?, ?)",
-		ow.session.sessionId,
-		objectId,
-	)
 	if err != nil {
 		db.Exec("ROLLBACK")
 		return err
@@ -237,22 +253,36 @@ UPDATE objects SET ref_count = ref_count + 1 WHERE id = ?;
 		}
 	}
 
-	// Move object into its target position
-	objectDir, objectPath := ow.session.hcas.dataFilePath(name)
-	err = os.Mkdir(objectDir, 0o777)
-	if err != nil && !errors.Is(err, fs.ErrExist) {
-		db.Exec("ROLLBACK")
-		return err
+	// Force temp file creation if we haven't done so yet.
+	if ow.file == nil {
+		err = ow.makeTempFile()
+		if err != nil {
+			db.Exec("ROLLBACK")
+			return err
+		}
+
+		err = ow.file.Sync()
+		if err != nil {
+			db.Exec("ROLLBACK")
+			return err
+		}
 	}
 
-	err = os.Rename(tempFilePath, objectPath)
-	if err != nil {
+	// TODO: Ought to unlink temp file on exist error
+	err = os.Rename(ow.file.Name(), objectPath)
+	if err != nil && os.IsNotExist(err) {
 		db.Exec("ROLLBACK")
 		return err
 	}
 
 	// Commit metadata updates
 	db.Exec("COMMIT")
+	if err != nil {
+		return err
+	}
+
+	// Close out the file
+	err = ow.file.Close()
 	if err != nil {
 		return err
 	}

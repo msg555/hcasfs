@@ -1,32 +1,17 @@
 package hcas
 
 import (
-	"bytes"
 	"database/sql"
 	"errors"
-	"io"
-	"os"
 )
 
 type hcasSession struct {
-	hcas      *hcasInternal
-	sessionId int64
+	hcas *hcasInternal
 }
 
 func createSession(hcas *hcasInternal) (Session, error) {
-	result, err := hcas.db.Exec("INSERT INTO sessions DEFAULT VALUES;")
-	if err != nil {
-		return nil, err
-	}
-
-	sessionId, err := result.LastInsertId()
-	if err != nil {
-		return nil, err
-	}
-
 	return &hcasSession{
-		hcas:      hcas,
-		sessionId: sessionId,
+		hcas: hcas,
 	}, nil
 }
 
@@ -55,10 +40,11 @@ SELECT l.object_id, o.name FROM labels AS l
 			return nil, errors.New("unexpected object name from database")
 		}
 
-		_, err = tx.Exec(`
-INSERT INTO session_deps (session_id, object_id) VALUES (?, ?);
-UPDATE objects SET ref_count = ref_count + 1 WHERE id = ?;
-`, s.sessionId, objectId, objectId)
+		_, err = tx.Exec(
+			"UPDATE objects SET lease_time=? WHERE id=?",
+			calculateLeaseTime(defaultObjectLease),
+			objectId,
+		)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
@@ -134,12 +120,7 @@ DELETE FROM labels WHERE namespace = ? AND label = ?;
 }
 
 func (s *hcasSession) CreateObject(data []byte, deps ...Name) (*Name, error) {
-	ow, err := s.StreamObject(deps...)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = io.Copy(ow, bytes.NewReader(data))
+	ow, err := createObjectStreamWithBuffer(s, data, deps...)
 	if err != nil {
 		return nil, err
 	}
@@ -157,60 +138,5 @@ func (s *hcasSession) StreamObject(deps ...Name) (ObjectWriter, error) {
 }
 
 func (s *hcasSession) Close() error {
-	return cleanupSessionById(s.hcas, s.sessionId)
-}
-
-func cleanupSessionById(hcas *hcasInternal, sessionId int64) error {
-	db := hcas.db
-	rows, err := db.Query(
-		"SELECT id FROM temp_files WHERE session_id = ?",
-		sessionId,
-	)
-	if err != nil {
-		return err
-	}
-
-	for rows.Next() {
-		var tempFileId int64
-		err = rows.Scan(&tempFileId)
-		if err != nil {
-			return err
-		}
-
-		// Attempt to delete temp file. It is possible it has already been deleted
-		// in which case just move on.
-		err = os.Remove(hcas.tempFilePath(tempFileId))
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return err
-	}
-
-	err = rows.Close()
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec(
-		`
-BEGIN;
-
--- Decrement referenced objects by session
-UPDATE objects AS o SET ref_count = ref_count - 1 WHERE
-	EXISTS (
-		SELECT 1 FROM session_deps AS sd WHERE
-			sd.session_id = ? AND sd.object_id = o.id
-	);
-
-DELETE FROM session_deps WHERE session_id = ?;
-DELETE FROM temp_files WHERE session_id = ?;
-DELETE FROM sessions WHERE id = ?;
-
-COMMIT;
-`, sessionId, sessionId, sessionId, sessionId)
-	return err
+	return nil
 }

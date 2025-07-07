@@ -286,19 +286,19 @@ const (
 
 func (hm *HcasMount) handleIoctlRequest(req *fuse.IoctlRequest) error {
 	switch req.Cmd {
-		case FS_IOC_GETFLAGS:
-			var buf [4]byte
-			var iocFlags uint32 = 0
-			binary.NativeEndian.PutUint32(buf[:], iocFlags)
-			req.Respond(&fuse.IoctlResponse{
-				Data: buf[:],
-			})
+	case FS_IOC_GETFLAGS:
+		var buf [4]byte
+		var iocFlags uint32 = 0
+		binary.NativeEndian.PutUint32(buf[:], iocFlags)
+		req.Respond(&fuse.IoctlResponse{
+			Data: buf[:],
+		})
 
-		default:
-			return FuseError{
-				source: errors.New("unknown ioctl"),
-				errno: unix.ENOSYS,
-			}
+	default:
+		return FuseError{
+			source: errors.New("unknown ioctl"),
+			errno:  unix.ENOSYS,
+		}
 	}
 
 	return nil

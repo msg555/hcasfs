@@ -20,6 +20,7 @@ const (
 	O_RDWR      = unix.O_RDWR
 	O_WRONLY    = unix.O_WRONLY
 	O_DIRECTORY = unix.O_DIRECTORY
+	O_TMPFILE   = unix.O_TMPFILE
 
 	S_IFMT   = unix.S_IFMT
 	S_IFBLK  = unix.S_IFBLK
@@ -45,6 +46,7 @@ const (
 	ENOTDIR = unix.ENOTDIR
 	ENOTSUP = unix.ENOTSUP
 	EROFS   = unix.EROFS
+	EEXIST  = unix.EEXIST
 
 	DT_UNKNOWN = 0
 	DT_FIFO    = S_IFIFO >> 12
@@ -55,7 +57,9 @@ const (
 	DT_LNK     = S_IFLNK >> 12
 	DT_SOCK    = S_IFSOCK >> 12
 
-	AT_SYMLINK_NOFOLLOW = 0x100
+	AT_SYMLINK_NOFOLLOW = unix.AT_SYMLINK_NOFOLLOW
+	AT_EMPTY_PATH       = unix.AT_EMPTY_PATH
+	AT_FDCWD            = unix.AT_FDCWD
 
 	SIGABRT = unix.SIGABRT
 	SIGALRM = unix.SIGALRM
@@ -70,8 +74,12 @@ const (
 	SIGSEGV = unix.SIGSEGV
 	SIGTERM = unix.SIGTERM
 	SIGTRAP = unix.SIGTRAP
+
+	F_WRLCK  = unix.F_WRLCK
+	F_SETLKW = unix.F_SETLKW
 )
 
+type Flock_t = unix.Flock_t
 type Stat_t = unix.Stat_t
 type Statfs_t = unix.Statfs_t
 type Errno = unix.Errno
@@ -286,8 +294,20 @@ func Fstatat(dirfd int, pathname string, stat *unix.Stat_t, flags int) error {
 	return err
 }
 
+func Linkat(olddirfd int, oldpath string, newdirfd int, newpath string, flags int) error {
+	return RetrySyscallE(func() error {
+		return unix.Linkat(olddirfd, oldpath, newdirfd, newpath, flags)
+	})
+}
+
 func Statfs(path string, buf *Statfs_t) error {
 	return RetrySyscallE(func() error {
 		return unix.Statfs(path, buf)
+	})
+}
+
+func FcntlFlock(fd uintptr, cmd int, lk *Flock_t) error {
+	return RetrySyscallE(func() error {
+		return unix.FcntlFlock(fd, cmd, lk)
 	})
 }

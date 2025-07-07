@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS version (
 CREATE TABLE IF NOT EXISTS objects (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	name BLOB UNIQUE NOT NULL,
-	ref_count INTEGER NOT NULL
+	ref_count INTEGER NOT NULL,
+	lease_time INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS object_by_name ON objects(name);
 CREATE INDEX IF NOT EXISTS object_by_ref_count ON objects(ref_count, id);
@@ -45,31 +46,10 @@ CREATE TABLE IF NOT EXISTS object_deps (
 );
 CREATE INDEX IF NOT EXISTS object_deps_by_parent ON object_deps(parent_id, child_id);
 
-CREATE TABLE IF NOT EXISTS sessions (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS session_deps (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	session_id INTEGER NOT NULL,
-	object_id INTEGER NOT NULL,
-	FOREIGN KEY (session_id) REFERENCES sessions(id),
-	FOREIGN KEY (object_id) REFERENCES objects(id)
-);
-CREATE INDEX IF NOT EXISTS session_deps_by_session ON session_deps(session_id, object_id);
-
-CREATE TABLE IF NOT EXISTS temp_files (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	session_id INTEGER NOT NULL,
-	FOREIGN KEY (session_id) REFERENCES sessions(id)
-);
-
 CREATE TABLE IF NOT EXISTS temp_objects (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	name BLOB NOT NULL
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       name BLOB NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS labels (
 	namespace TEXT NOT NULL,
 	label TEXT NOT NULL,
@@ -209,12 +189,14 @@ func (h *hcasInternal) ObjectPath(name Name) string {
 	)
 }
 
-func (h *hcasInternal) tempFilePath(tempFileId int64) string {
-	return filepath.Join(h.basePath, TempPath, strconv.FormatInt(tempFileId, 10))
-}
-
 func (h *hcasInternal) dataFilePath(name Name) (string, string) {
 	nameHex := name.HexName()
 	dirPath := filepath.Join(h.basePath, DataPath, nameHex[:2])
 	return dirPath, filepath.Join(dirPath, nameHex[2:])
+}
+
+const defaultObjectLease = 60 * 60
+
+func calculateLeaseTime(leaseDurationSeconds int64) int64 {
+	return time.Now().Unix() + leaseDurationSeconds
 }

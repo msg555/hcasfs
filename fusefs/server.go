@@ -138,12 +138,12 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
 		err = hm.handleGetattrRequest(req.(*fuse.GetattrRequest))
 	case *fuse.ReadlinkRequest:
 		err = hm.handleReadlinkRequest(req.(*fuse.ReadlinkRequest))
-/*
-	case *fuse.GetxattrRequest:
-		err = hm.handleGetxattrRequest(req.(*fuse.GetxattrRequest))
-	case *fuse.ListxattrRequest:
-		err = hm.handleListxattrRequest(req.(*fuse.ListxattrRequest))
-*/
+		/*
+			case *fuse.GetxattrRequest:
+				err = hm.handleGetxattrRequest(req.(*fuse.GetxattrRequest))
+			case *fuse.ListxattrRequest:
+				err = hm.handleListxattrRequest(req.(*fuse.ListxattrRequest))
+		*/
 
 	// Handle methods
 	case *fuse.ReleaseRequest:
@@ -159,7 +159,7 @@ func (hm *HcasMount) handleRequest(req fuse.Request) {
 		fmt.Println("WARNING NOT IMPLEMENTED:", req)
 		err = FuseError{
 			source: errors.New("not implemented"),
-			errno: unix.ENOSYS,
+			errno:  unix.ENOSYS,
 		}
 	}
 
