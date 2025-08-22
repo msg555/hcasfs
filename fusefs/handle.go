@@ -157,10 +157,10 @@ func (h *FileHandleDir) Read(req *fuse.ReadRequest) error {
 			uint64(h.currentSeek+1),
 			dirEntry.Inode.Mode,
 		)
+		h.currentSeek++
 		if size == 0 {
 			break
 		}
-		h.currentSeek++
 		bufOffset += size
 	}
 
@@ -189,7 +189,6 @@ func (fhr *FileHandleReg) Release(req *fuse.ReleaseRequest) error {
 func (fhr *FileHandleReg) Read(req *fuse.ReadRequest) error {
 	buf := make([]byte, req.Size)
 	bytesRead := 0
-	fmt.Printf("Got read %d %d\n", req.Offset, req.Size)
 	for bytesRead < req.Size {
 		amt, err := fhr.nodeFile.ReadAt(buf[bytesRead:], req.Offset+int64(bytesRead))
 		bytesRead += amt

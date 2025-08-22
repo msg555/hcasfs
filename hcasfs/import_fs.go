@@ -39,14 +39,14 @@ func importLink(hs hcas.Session, fd int) (*hcas.Name, uint64, error) {
 	return writer.Name(), uint64(bytesRead), nil
 }
 
-func importDirectory(hs hcas.Session, fd int) (*hcas.Name, uint64, error) {
+func importDirectory(hs hcas.Session, fd int) (*hcas.Name, uint64, uint64, error) {
 	buf := make([]byte, 1<<16)
 	dirBuilder := CreateDirBuilder()
 
 	for {
 		bytesRead, err := unix.Getdents(fd, buf)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 		if bytesRead == 0 {
 			break
@@ -78,42 +78,48 @@ func importDirectory(hs hcas.Session, fd int) (*hcas.Name, uint64, error) {
 			}
 			childFd, err := unix.Openat(fd, fileName, flags, 0)
 			if err != nil {
-				return nil, 0, err
+				return nil, 0, 0, err
 			}
 
 			var childSt unix.Stat_t
 			err = unix.Fstat(childFd, &childSt)
 			if err != nil {
 				unix.Close(childFd)
-				return nil, 0, err
+				return nil, 0, 0, err
 			}
 
 			if (childSt.Mode & unix.S_IFMT) != (uint32(tp) << 12) {
 				unix.Close(childFd)
-				return nil, 0, errors.New("Unexpected file type statting file")
+				return nil, 0, 0, errors.New("Unexpected file type statting file")
 			}
 
 			var childObjName *hcas.Name
 			var childSize uint64
 			var childTreeSize uint64 = 1
+			var childSubDirs uint64 = 1
 
 			if tp == unix.DT_REG {
 				childObjName, childSize, err = importRegular(hs, childFd)
 			} else if tp == unix.DT_DIR {
-				childObjName, childTreeSize, err = importDirectory(hs, childFd)
+				childObjName, childTreeSize, childSubDirs, err = importDirectory(hs, childFd)
 			} else if tp == unix.DT_LNK {
 				childObjName, childSize, err = importLink(hs, childFd)
 			}
 			if err != nil {
 				unix.Close(childFd)
-				return nil, 0, err
+				return nil, 0, 0, err
 			}
 			err = unix.Close(childFd)
 			if err != nil {
-				return nil, 0, err
+				return nil, 0, 0, err
 			}
 			if (tp == unix.DT_REG || tp == unix.DT_LNK) && childSize != uint64(childSt.Size) {
-				return nil, 0, errors.New("File size changed while reading data")
+				return nil, 0, 0, errors.New("File size changed while reading data")
+			}
+
+			childInode := InodeFromStat(childSt, childObjName)
+			if tp == unix.DT_DIR {
+				childInode.Nlink = childSubDirs + 2
 			}
 
 			dirBuilder.Insert(fileName, InodeFromStat(childSt, childObjName), childTreeSize)
@@ -122,9 +128,9 @@ func importDirectory(hs hcas.Session, fd int) (*hcas.Name, uint64, error) {
 
 	name, err := hs.CreateObject(dirBuilder.Build(), dirBuilder.DepNames...)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
-	return name, dirBuilder.TotalTreeSize, nil
+	return name, dirBuilder.TotalTreeSize, dirBuilder.SubDirs, nil
 }
 
 func ImportPath(hs hcas.Session, path string) (*hcas.Name, error) {
@@ -144,6 +150,6 @@ func ImportPath(hs hcas.Session, path string) (*hcas.Name, error) {
 	if !unix.S_ISDIR(st.Mode) {
 		return nil, errors.New("Only directories can be imported directly")
 	}
-	name, _, err := importDirectory(hs, fd)
+	name, _, _, err := importDirectory(hs, fd)
 	return name, err
 }

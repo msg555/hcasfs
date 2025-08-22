@@ -28,23 +28,16 @@ func startTrace() (func(), error) {
 }
 
 func main() {
-	if len(os.Args) != 3 {
-		log.Fatal("Usage: import_tar <tar_file> <label_name>")
+	if len(os.Args) != 4 {
+		log.Fatal("Usage: import_tar <hcas_path> <tar_file> <label_name>")
 	}
 
-	if true {
-		stopTrace, err := startTrace()
-		if err != nil {
-			log.Fatal("Failed to setup trace: ", err)
-		}
-		defer stopTrace()
-	}
-
-	tarFilePath := os.Args[1]
-	labelName := os.Args[2]
+	hcasFilePath := os.Args[1]
+	tarFilePath := os.Args[2]
+	labelName := os.Args[3]
 
 	// Create or open HCAS instance
-	h, err := hcas.CreateHcas("test-hcas")
+	h, err := hcas.CreateHcas(hcasFilePath)
 	if err != nil {
 		log.Fatal("failed to initialize hcas: ", err)
 	}

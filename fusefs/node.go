@@ -56,7 +56,7 @@ func inodeAttr(inodeId fuse.NodeID, inode *hcasfs.InodeData) fuse.Attr {
 		Mtime:     nsTimestampToTime(inode.Mtim),
 		Ctime:     nsTimestampToTime(inode.Ctim),
 		Mode:      unix.UnixToFileStatMode(inode.Mode),
-		Nlink:     1,
+		Nlink:     uint32(inode.Nlink),
 		Uid:       inode.Uid,
 		Gid:       inode.Gid,
 		Rdev:      uint32(inode.Dev),
@@ -130,7 +130,7 @@ func (hm *HcasMount) handleLookupRequest(req *fuse.LookupRequest) error {
 	}
 
 	inodeId := fuse.NodeID(uint64(req.Node) + dirEntry.ParentDepIndex)
-	fmt.Printf("Looking up %s %d %d\n", req.Name, inodeId, dirEntry.ParentDepIndex)
+	fmt.Printf("Looking up %s %d %d\n", req.Name, inodeId, dirEntry.Inode.Mode)
 	req.Respond(&fuse.LookupResponse{
 		Node:       inodeId,
 		Generation: 1,                // What is this?

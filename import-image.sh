@@ -2,6 +2,8 @@
 
 set -eo pipefail
 
+HCAS_PATH=${HCAS_PATH:-"hcas-test"}
+
 IMAGE=$1
 DEST_IMAGE_NAME="${2:-${IMAGE}}"
 
@@ -16,6 +18,6 @@ trap cleanup-container EXIT
 CTR_ID=$(docker create "${IMAGE}")
 
 docker export "${CTR_ID}" |
-  time go run cmd/import_tar.go /dev/stdin "${DEST_IMAGE_NAME}"
-  # time ./import_tar /dev/stdin "${DEST_IMAGE_NAME}"
+  time go run cmd/import_tar.go "${HCAS_PATH}" /dev/stdin "${DEST_IMAGE_NAME}"
+  # time ./import_tar "${HCAS_PATH}" /dev/stdin "${DEST_IMAGE_NAME}"
 cleanup-container

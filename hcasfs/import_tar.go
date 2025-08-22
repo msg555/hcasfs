@@ -232,7 +232,11 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 		dirBuilder := CreateDirBuilder()
 		dirEntry := dirEntries[dirPath]
 
+		var linkCount uint64 = 2
 		for filePath, child := range dirEntry.children {
+			if unix.S_ISDIR(child.inode.Mode) {
+				linkCount += 1
+			}
 			dirBuilder.Insert(filePath, &child.inode, child.treeSize)
 		}
 
@@ -242,6 +246,7 @@ func ImportTar(hs hcas.Session, tarReader io.Reader) (*hcas.Name, error) {
 		}
 
 		dirEntry.inode.ObjName = name
+		dirEntry.inode.Nlink = linkCount
 		dirEntry.treeSize = dirBuilder.TotalTreeSize
 	}
 

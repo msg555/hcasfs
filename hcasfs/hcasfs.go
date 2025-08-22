@@ -17,6 +17,7 @@ type InodeData struct {
 	Uid     uint32
 	Gid     uint32
 	Dev     uint64
+	Nlink   uint64
 	Atim    uint64
 	Mtim    uint64
 	Ctim    uint64
@@ -34,6 +35,7 @@ func InodeFromStat(st unix.Stat_t, objName *hcas.Name) *InodeData {
 		Mtim:    uint64(st.Mtim.Nano()),
 		Ctim:    uint64(st.Ctim.Nano()),
 		Size:    uint64(st.Size),
+		Nlink:   uint64(1),
 		ObjName: objName,
 	}
 	if unix.S_ISCHR(st.Mode) || unix.S_ISBLK(st.Mode) {
@@ -54,6 +56,7 @@ type dirBuilder struct {
 	DirEntries    []DirEntry
 	DepNames      []hcas.Name
 	TotalTreeSize uint64
+	SubDirs       uint64
 }
 
 func CreateDirBuilder() *dirBuilder {
@@ -83,6 +86,9 @@ func (d *dirBuilder) Insert(fileName string, inode *InodeData, treeSize uint64) 
 	}
 	d.DirEntries = append(d.DirEntries, dirEntry)
 
+	if unix.S_ISDIR(inode.Mode) {
+		d.SubDirs += 1
+	}
 	if fileModeHasObjectData(inode.Mode) != (inode.ObjName != nil) {
 		panic("object data state unexpected for file type")
 	}
@@ -146,7 +152,11 @@ func (d *DirEntry) Encode() []byte {
 	binary.BigEndian.PutUint32(buf[0:], d.Inode.Mode)
 	binary.BigEndian.PutUint32(buf[4:], d.Inode.Uid)
 	binary.BigEndian.PutUint32(buf[8:], d.Inode.Gid)
-	binary.BigEndian.PutUint64(buf[12:], d.Inode.Dev)
+	if unix.S_ISDIR(d.Inode.Mode) {
+		binary.BigEndian.PutUint64(buf[12:], d.Inode.Nlink)
+	} else {
+		binary.BigEndian.PutUint64(buf[12:], d.Inode.Dev)
+	}
 	binary.BigEndian.PutUint64(buf[20:], d.Inode.Atim)
 	binary.BigEndian.PutUint64(buf[28:], d.Inode.Mtim)
 	binary.BigEndian.PutUint64(buf[36:], d.Inode.Ctim)
@@ -172,7 +182,13 @@ func (d *DirEntry) DecodeStream(stream io.Reader) error {
 	d.Inode.Mode = binary.BigEndian.Uint32(buf[0:])
 	d.Inode.Uid = binary.BigEndian.Uint32(buf[4:])
 	d.Inode.Gid = binary.BigEndian.Uint32(buf[8:])
-	d.Inode.Dev = binary.BigEndian.Uint64(buf[12:])
+	if unix.S_ISDIR(d.Inode.Mode) {
+		d.Inode.Dev = 0
+		d.Inode.Nlink = binary.BigEndian.Uint64(buf[12:])
+	} else {
+		d.Inode.Dev = binary.BigEndian.Uint64(buf[12:])
+		d.Inode.Nlink = 1
+	}
 	d.Inode.Atim = binary.BigEndian.Uint64(buf[20:])
 	d.Inode.Mtim = binary.BigEndian.Uint64(buf[28:])
 	d.Inode.Ctim = binary.BigEndian.Uint64(buf[36:])
