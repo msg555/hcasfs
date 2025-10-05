@@ -12,13 +12,13 @@ int buffered_close(struct buffered_file *f);
 struct buffered_view *buffered_view_open(struct buffered_file *bf);
 void buffered_view_close(struct buffered_view *bv);
 
-char *buffered_view_read(struct buffered_view *bv,
-    char *buf, ssize_t len, loff_t *pos);
+char *buffered_view_read(struct buffered_view *bv, char *buf, ssize_t len,
+			 loff_t *pos);
 
-/* Same as hcasfs_read_buffered except will return ERR_PTR(-EIO) if the the full
+/* Same as hcasfs_read_buffered except will return ERR_PTR(-EIO) if the full
  * length cannot be read.
  */
-char *buffered_view_read_full(struct buffered_view *bv,
-    char *buf, ssize_t len, loff_t *pos);
+char *buffered_view_read_full(struct buffered_view *bv, char *buf, ssize_t len,
+			      loff_t *pos);
 
 #endif

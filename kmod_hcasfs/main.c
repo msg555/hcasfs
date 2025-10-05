@@ -1,6 +1,6 @@
 /*
  * HCAS Filesystem - Main Module
- * 
+ *
  * Module initialization, filesystem registration, and mount handling
  */
 
@@ -8,43 +8,43 @@
 #include <linux/init.h>
 
 /* Forward declarations */
-static struct dentry *hcasfs_mount(struct file_system_type *fs_type,
-				   int flags, const char *dev_name, void *data);
+static struct dentry *hcasfs_mount(struct file_system_type *fs_type, int flags,
+				   const char *dev_name, void *data);
 static void hcasfs_kill_sb(struct super_block *sb);
 
 /* Filesystem type structure */
 static struct file_system_type hcasfs_type = {
-	.owner    = THIS_MODULE,
-	.name     = HCASFS_MODULE_NAME,
-	.mount    = hcasfs_mount,
-	.kill_sb  = hcasfs_kill_sb,
+	.owner = THIS_MODULE,
+	.name = HCASFS_MODULE_NAME,
+	.mount = hcasfs_mount,
+	.kill_sb = hcasfs_kill_sb,
 	.fs_flags = FS_REQUIRES_DEV,
 };
 
 /* Mount callback */
-static struct dentry *hcasfs_mount(struct file_system_type *fs_type,
-				   int flags, const char *dev_name, void *data)
+static struct dentry *hcasfs_mount(struct file_system_type *fs_type, int flags,
+				   const char *dev_name, void *data)
 {
 	struct hcasfs_mount_data mount_data;
 	char *data_path;
 	struct dentry *result;
 	int err;
 
-	printk(KERN_INFO "hcasfs: Mounting filesystem on %s\n", dev_name ? dev_name : "none");
+	printk(KERN_INFO "hcasfs: mounting filesystem on %s\n",
+	       dev_name ? dev_name : "none");
 	if (!dev_name) {
 		printk(KERN_ERR "hcasfs: No device (hcas_path) specified\n");
 		return ERR_PTR(-EINVAL);
 	}
 
 	data_path = kasprintf(GFP_KERNEL, "%s/data", dev_name);
-	if (!data_path) {
+	if (!data_path)
 		return ERR_PTR(-ENOMEM);
-	}
 
 	/* Lookup data directory in caller's namespace context */
 	err = kern_path(data_path, LOOKUP_FOLLOW, &mount_data.hcas_data_dir);
 	if (err) {
-		printk(KERN_ERR "hcasfs: Cannot open directory %s: %d\n", 
+		printk(KERN_ERR "hcasfs: cannot open directory %s: %d\n",
 		       data_path, err);
 		return ERR_PTR(err);
 	}
@@ -58,9 +58,9 @@ static struct dentry *hcasfs_mount(struct file_system_type *fs_type,
 
 	/* Package directory handle and original data for fill_super */
 	mount_data.data = data;
-	
+
 	result = mount_nodev(fs_type, flags, &mount_data, hcasfs_fill_super);
-	
+
 	path_put(&mount_data.hcas_data_dir);
 	return result;
 }
@@ -68,7 +68,6 @@ static struct dentry *hcasfs_mount(struct file_system_type *fs_type,
 /* Unmount callback */
 static void hcasfs_kill_sb(struct super_block *sb)
 {
-	printk(KERN_INFO "hcasfs: Unmounting filesystem\n");
 	kill_anon_super(sb);
 }
 
@@ -76,11 +75,13 @@ static int __init hcasfs_init(void)
 {
 	int ret;
 
-	printk(KERN_INFO "hcasfs: Loading HCAS filesystem module v%s\n", HCASFS_VERSION);
-	
+	printk(KERN_INFO "hcasfs: Loading HCAS filesystem module v%s\n",
+	       HCASFS_VERSION);
+
 	ret = register_filesystem(&hcasfs_type);
 	if (ret) {
-		printk(KERN_ERR "hcasfs: Failed to register filesystem: %d\n", ret);
+		printk(KERN_ERR "hcasfs: Failed to register filesystem: %d\n",
+		       ret);
 		return ret;
 	}
 

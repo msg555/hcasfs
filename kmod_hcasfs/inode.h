@@ -6,20 +6,20 @@
 #include "hcasfs.h"
 
 struct hcasfs_inode_dir_info {
-    int initialized;
-    u32 flags;
-    u32 entry_count;
-    u64 tree_size;
+	int initialized;
+	u32 flags;
+	u32 entry_count;
+	u64 tree_size;
 };
 
 struct hcasfs_inode_info {
-  struct path path;
-  struct buffered_file *bf;
-  struct buffered_view *bv;
-  union {
-    struct hcasfs_inode_dir_info dir;
-    int unk;
-  };
+	struct path path;
+	struct buffered_file *bf;
+	struct buffered_view *bv;
+	union {
+		struct hcasfs_inode_dir_info dir;
+		int unk;
+	};
 };
 
 struct buffered_file *hcasfs_inode_buffered_file(struct inode *inode);
