@@ -3,7 +3,7 @@
 obj-m := hcasfs.o
 
 # Multiple object files that make up the hcasfs module
-hcasfs-objs := main.o super.o inode.o file.o file_dir.o
+hcasfs-objs := main.o super.o inode.o file_reg.o file_dir.o buffered_reader.o
 
 # Kernel build directory - automatically detect running kernel
 KDIR := /lib/modules/$(shell uname -r)/build

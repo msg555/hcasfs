@@ -26,42 +26,42 @@ static struct dentry *hcasfs_mount(struct file_system_type *fs_type,
 				   int flags, const char *dev_name, void *data)
 {
 	struct hcasfs_mount_data mount_data;
-	struct file *hcas_dir;
+	char *data_path;
 	struct dentry *result;
+	int err;
 
 	printk(KERN_INFO "hcasfs: Mounting filesystem on %s\n", dev_name ? dev_name : "none");
-	
 	if (!dev_name) {
 		printk(KERN_ERR "hcasfs: No device (hcas_path) specified\n");
 		return ERR_PTR(-EINVAL);
 	}
 
-	/* Open directory in caller's namespace context */
-	hcas_dir = filp_open(dev_name, O_RDONLY, 0);
-	if (IS_ERR(hcas_dir)) {
-		printk(KERN_ERR "hcasfs: Cannot open directory %s: %ld\n", 
-		       dev_name, PTR_ERR(hcas_dir));
-		return ERR_CAST(hcas_dir);
+	data_path = kasprintf(GFP_KERNEL, "%s/data", dev_name);
+	if (!data_path) {
+		return ERR_PTR(-ENOMEM);
+	}
+
+	/* Lookup data directory in caller's namespace context */
+	err = kern_path(data_path, LOOKUP_FOLLOW, &mount_data.hcas_data_dir);
+	if (err) {
+		printk(KERN_ERR "hcasfs: Cannot open directory %s: %d\n", 
+		       data_path, err);
+		return ERR_PTR(err);
 	}
 
 	/* Verify it's actually a directory */
-	if (!S_ISDIR(file_inode(hcas_dir)->i_mode)) {
-		printk(KERN_ERR "hcasfs: %s is not a directory\n", dev_name);
-		filp_close(hcas_dir, NULL);
+	if (!S_ISDIR(mount_data.hcas_data_dir.dentry->d_inode->i_mode)) {
+		printk(KERN_ERR "hcasfs: %s is not a directory\n", data_path);
+		path_put(&mount_data.hcas_data_dir);
 		return ERR_PTR(-ENOTDIR);
 	}
 
 	/* Package directory handle and original data for fill_super */
-	mount_data.hcas_dir = hcas_dir;
 	mount_data.data = data;
 	
 	result = mount_nodev(fs_type, flags, &mount_data, hcasfs_fill_super);
 	
-	/* If mount failed, clean up the directory handle */
-	if (IS_ERR(result)) {
-		filp_close(hcas_dir, NULL);
-	}
-	
+	path_put(&mount_data.hcas_data_dir);
 	return result;
 }
 

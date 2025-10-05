@@ -78,7 +78,7 @@ func CreateServer(
 		hcasDataDir: filepath.Join(hcasRootDir, hcas.DataPath),
 		inodeMap:    make(map[fuse.NodeID]*InodeReference),
 		handleMap:   make(map[fuse.HandleID]FileHandle),
-		rootInode:   hcasfs.InodeData{
+		rootInode: hcasfs.InodeData{
 			Mode: unix.S_IFDIR | 0o755,
 		},
 	}
@@ -90,7 +90,7 @@ func CreateServer(
 	hcasMount.rootInode.Nlink = 3
 
 	rootInodeRef := InodeReference{
-		Inode: hcasMount.rootInode,
+		Inode:    hcasMount.rootInode,
 		RefCount: 1,
 	}
 	hcasMount.inodeMap[1] = &rootInodeRef

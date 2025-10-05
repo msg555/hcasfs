@@ -1,109 +1,148 @@
 #include "hcasfs.h"
 
-// TODO: Can allocate a smaller buffered based on f_size as an optimization.
-struct hcasfs_buffered_file {
+#include <linux/minmax.h>
+
+#define BUF_SIZE (4 * PAGE_SIZE)
+
+struct buffered_file {
   struct file *f;
+};
+
+struct buffered_view {
+  struct buffered_file *bf;
+  struct mutex lock;
   loff_t f_size;
   loff_t buf_pos;
   loff_t buf_size;
-  char buf[4 * PAGE_SIZE];
+  char buf[BUF_SIZE];
 };
 
-// f->f_inode->i_size
+struct buffered_file *buffered_open(struct file *f)
+{
+  struct buffered_file *bf;
 
-struct hcasfs_buffered_file *hcasfs_open_buffered(struct file *f) {
-  struct hcasfs_buffered_file *buf_f = kmalloc(sizeof(struct hcasfs_buffered_file), GFP_KERNEL);
-  if (!buf_f) {
+  bf = kmalloc(sizeof(struct buffered_file), GFP_KERNEL);
+  if (!bf) {
     return NULL;
   }
-  buf_f->f = f;
-  buf_f->f_size = f->f_inode->i_size;
-  buf_f->buf_pos = 0;
-  buf_f->buf_size = 0;
-  return buf_f;
+
+  bf->f = get_file(f);
+  return bf;
 }
 
-int hcasfs_close_buffered(struct hcasfs_buffered_file *f)
+int buffered_close(struct buffered_file *bf)
 {
-  if (f) {
-    int result = filp_close(f->f, NULL);
-    if (result < 0) {
-      return result; 
-    }
-    kfree(f);
-  }
+  fput(bf->f);
+  kfree(bf);
   return 0;
 }
 
-char *hcasfs_read_buffered(struct hcasfs_buffered_file *f,
+struct buffered_view *buffered_view_open(struct buffered_file *bf)
+{
+  struct buffered_view *bv;
+
+  size_t struct_size = sizeof(*bv);
+  loff_t f_size = bf->f->f_inode->i_size;
+
+  // If file size is smaller than buffer allocate buffer only large enough to fit.
+  if (f_size < BUF_SIZE) {
+    f_size -= BUF_SIZE - f_size;
+  }
+
+  bv = kmalloc(struct_size, GFP_KERNEL);
+  if (!bv) {
+    return NULL;
+  }
+  bv->bf = bf;
+  bv->f_size = bf->f->f_inode->i_size;
+  bv->buf_pos = 0;
+  bv->buf_size = 0;
+  return bv;
+}
+
+void buffered_view_close(struct buffered_view *bv)
+{
+  kfree(bv);
+}
+
+static ssize_t read_block(struct buffered_view *bv, loff_t off) {
+  ssize_t bytes_read = 0;
+  ssize_t bytes_want = sizeof(bv->buf);
+  loff_t start = off;
+
+  if (bv->f_size - off < bytes_want) {
+    bytes_want = bv->f_size - off;
+  }
+  if (bv->buf_pos == start) {
+    if (bytes_want <= bv->buf_size) {
+      return 0;
+    }
+    bytes_read = bv->buf_size;
+  }
+
+  // Read in a full block. Usually this show be one kernel_read call.
+  while (bytes_want > 0) {
+    if (!bv->bf) {
+      return -EIO;
+    }
+
+    ssize_t result = kernel_read(bv->bf->f, bv->buf + bytes_read, bytes_want, &off);
+    if (result < 0) {
+      bv->buf_pos = 0;
+      bv->buf_size = 0;
+      return result;
+    }
+    bytes_read += result;
+    bytes_want -= result;
+  }
+
+  bv->buf_pos = start;
+  bv->buf_size = bytes_read;
+
+  return 0;
+}
+
+char *buffered_view_read(struct buffered_view *bv, char *buf, ssize_t len, loff_t *pos)
+{
+  loff_t start = *pos;
+  loff_t end = start + len;
+  if (end > bv->f_size) {
+    end = bv->f_size;
+  }
+  if (start >= end) {
+    return NULL;
+  }
+
+  loff_t block_start = start / BUF_SIZE;
+  loff_t block_end = (end - 1) / BUF_SIZE;
+
+  for (loff_t i = block_start; i <= block_end; i++) {
+    ssize_t result = read_block(bv, i * BUF_SIZE);
+    if (result < 0) {
+      return ERR_PTR(result);
+    }
+
+    loff_t f_s = max_t(loff_t, i * BUF_SIZE, start);
+    loff_t f_t = min_t(loff_t, (i + 1) * BUF_SIZE, end);
+    if (f_s == start && f_t == end) {
+      *pos += end - start;
+      return bv->buf + start - bv->buf_pos;
+    }
+    memcpy(buf + f_s - start, bv->buf + f_s - i * BUF_SIZE, f_t - f_s);
+  }
+
+  *pos += end - start;
+  return buf;
+}
+
+char *buffered_view_read_full(struct buffered_view *bv,
     char *buf, ssize_t len, loff_t *pos)
 {
-  /*
-  TODO: Update this!
-
-  Read *len bytes from the buffered reader. This will always read exactly *len
-  bytes unless the end of file is reached. In that case *len will be updated
-  with the total number of bytes read.
-
-  Generally this is optimized for sequential reading but can support
-
-  If internal buffers already contain the requested bytes sequentially then this
-  method will return the internal buffer starting at the requested byte
-  location. Otherwise it will copy data into buf and return buf. buf must always
-  be large enough to hold *len bytes of data.
-
-  On failure this will return NULL and set *len to a negative error code. No
-  internal state will be modified on failure.
-  */
-  ssize_t buf_pos = 0;
-  ssize_t len_rem = *len;
-  loff_t reset_pos = f->f_pos - (f->buf_end - f->buf_pos);
-  int read_count = 0;
-
-  while (true) {
-    ssize_t bytes_copy;
-    ssize_t bytes_read;
-
-    if (f->buf_pos + len_rem <= f->buf_end) {
-      f->f_pos += len_rem;
-      return f->buf + f->buf_pos;
-    }
-
-    bytes_copy = f->buf_end - f->buf_pos;
-    if (len_rem <= bytes_copy) {
-      if (buf_pos == 0) {
-        // No copy case. All data is already sequentially in buffer.
-        f->buf_pos += len_rem;
-        return f->buf + f->buf_pos - len_rem;
-      }
-
-      // Copy data into buffer and return
-      memcpy(buf + buf_pos, f->buf + f->buf_pos, len_rem);
-      f->buf_pos += len_rem;
-      return buf;
-    }
-
-    if (bytes_copy > 0) {
-      memcpy(buf + buf_pos, f->buf + f->buf_pos, len_rem);
-      buf_pos += bytes_copy;
-      len_rem -= bytes_copy;
-    }
-
-    // Read full block of data
-    bytes_read = kernel_read(f->f, f->buf, sizeof(f->buf), &f->f_pos);
-    if (bytes_read < 0) {
-      if (read_count > 0) {
-        // Reset file position to where we started and clear buffer.
-        f->f_pos = reset_pos;
-        f->buf_pos = 0;
-        f->buf_end = 0;
-      }
-      *len = bytes_read;
-      return NULL;
-    }
-    read_count++;
-
-    f->buf_pos = 0;
-    f->buf_end = bytes_read;
+  loff_t pos_cpy = *pos;
+  char *result = buffered_view_read(bv, buf, len, &pos_cpy);
+  if (pos_cpy - *pos != len) {
+    return ERR_PTR(-EIO);
   }
+  *pos = pos_cpy;
+  return result;
 }
