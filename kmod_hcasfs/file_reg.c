@@ -21,8 +21,6 @@ static int hcasfs_open(struct inode *inode, struct file *file)
   struct hcasfs_file_data *file_data;
   struct hcasfs_inode_info *inode_info = inode->i_private;
 
-  printk(KERN_INFO "hcasfs: got regular file open!\n");
-
   if (!hcasfs_inode_has_content(inode)) {
 	  return 0;
   }
@@ -127,7 +125,6 @@ const struct file_operations hcasfs_reg_ops = {
 	.llseek = generic_file_llseek,
   .release = hcasfs_release,
 	.mmap = hcasfs_mmap,
-
   .fadvise  = hcasfs_fadvise,
   .splice_read    = hcasfs_splice_read,
 };

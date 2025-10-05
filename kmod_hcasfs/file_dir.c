@@ -87,6 +87,29 @@ static int hcasfs_release(struct inode *inode, struct file *file)
   return 0;
 }
 
+
+static int hcasfs_seek_dir(struct file *file, loff_t pos)
+{
+  loff_t read_pos;
+  char dir_index_data[4];
+  char *data;
+  struct hcasfs_dir_data *dir_data = file->private_data;
+  struct hcasfs_inode_dir_info *inode_dir_info = hcasfs_inode_dir_info(file_inode(file));
+
+  if(WARN_ON(pos < 0 || pos >= inode_dir_info->entry_count))
+    return -EIO;
+
+  // Find the file's offset in the dirent offset table
+  read_pos = 16 + 8 * pos;
+  data = buffered_view_read_full(dir_data->bv, dir_index_data, sizeof(dir_index_data), &read_pos);
+  if (IS_ERR(data))
+    return PTR_ERR(data);
+
+  // Set the read offset
+  dir_data->f_pos = get_unaligned_be32(data);
+  return 0;
+}
+
 /* Custom readdir function to list our hardcoded files */
 static int hcasfs_readdir(struct file *file, struct dir_context *ctx)
 {
@@ -94,12 +117,11 @@ static int hcasfs_readdir(struct file *file, struct dir_context *ctx)
   struct hcasfs_dir_data *dir_data = file->private_data;
   struct hcasfs_inode_dir_info *inode_dir_info;
 
-	printk(KERN_INFO "hcasfs: Reading directory at pos %lld\n", ctx->pos);
   if (!dir_data) {
     return -EIO;
   }
   
-  inode_dir_info = hcasfs_inode_dir_info(file->f_inode);
+  inode_dir_info = hcasfs_inode_dir_info(file_inode(file));
   if (IS_ERR(inode_dir_info)) {
     return PTR_ERR(inode_dir_info);
   }
@@ -108,12 +130,18 @@ static int hcasfs_readdir(struct file *file, struct dir_context *ctx)
 	if (!dir_emit_dots(file, ctx))
 		return 0;
 	
-  printk(KERN_INFO "hcasfs: Trying to read directory\n");
+  /* Passed the end of the directory already */
+  if (ctx->pos >= inode_dir_info->entry_count + 2)
+    return 0;
+
   if (dir_data->dir_pos != ctx->pos) {
     /* Need to seek our position in the directory. */
-    printk(KERN_INFO "hcasfs: TODO: Need to implement seek\n");
+    int result = hcasfs_seek_dir(file, ctx->pos - 2);
+    if (result)
+      return result;
   }
 
+  // Emit as many records as can fit in the buffer.
   while (ctx->pos < inode_dir_info->entry_count + 2) {
     int result = hcasfs_readdir_one(file, ctx);
     if (result < 0) {
@@ -127,7 +155,6 @@ static int hcasfs_readdir(struct file *file, struct dir_context *ctx)
 		ctx->pos++;
   }
 
-	printk(KERN_INFO "hcasfs: Directory read complete\n");
 	return 0;
 }
 
