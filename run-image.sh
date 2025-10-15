@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+#
+# Start runc using an hcas object as the rootfs. Sets up overlayfs as a writable
+# layer on top of the read-only hcas mount.
+#
+# Usage: ./run-image.sh ROOT_OBJECT_ID COMMAND [COMMAND_ARGS...]
 
 set -eo pipefail
 set -x

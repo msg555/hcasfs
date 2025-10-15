@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+#
+# Start runc using an hcas object as the rootfs. Container runs directly on hcas
+# mount so file system is not writable.
+#
+# Usage: ./run-image.sh ROOT_OBJECT_ID COMMAND [COMMAND_ARGS...]
 
 set -eo pipefail
 set -x
