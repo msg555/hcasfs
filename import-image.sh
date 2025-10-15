@@ -2,7 +2,7 @@
 
 set -eo pipefail
 
-HCAS_PATH=${HCAS_PATH:-"hcas-test"}
+HCAS_PATH=${HCAS_PATH:-"/hcas-data"}
 
 IMAGE=$1
 DEST_IMAGE_NAME="${2:-${IMAGE}}"

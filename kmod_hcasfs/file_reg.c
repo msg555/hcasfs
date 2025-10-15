@@ -23,10 +23,9 @@ static int hcasfs_open(struct inode *inode, struct file *file)
 	if (!hcasfs_inode_has_content(inode))
 		return 0;
 
-	// TODO: Update this to use backing_file_open. Need to keep track of inode's
-	// user path separate from real_path of the upstream backing file.
 	backing_file = backing_file_open(&file->f_path, O_RDONLY,
-					 &inode_info->path, current_cred());
+					 &inode_info->path,
+					 hcasfs_creds(inode->i_sb));
 	if (IS_ERR(file))
 		return PTR_ERR(backing_file);
 

@@ -4,13 +4,14 @@
  * Handles inode operations like lookup, getattr
  */
 
+
 #include "inode.h"
 #include "hcasfs.h"
 
 #include <linux/crc32.h>
 
-struct inode *hcas_new_inode(struct super_block *sb,
-			     char hcas_object_name[HCASFS_OBJECT_NAME_LEN])
+struct inode *hcasfs_new_inode(struct super_block *sb,
+			       char hcas_object_name[HCASFS_OBJECT_NAME_LEN])
 {
 	struct inode *inode;
 	struct hcasfs_inode_info *info;
@@ -20,8 +21,8 @@ struct inode *hcas_new_inode(struct super_block *sb,
 	if (!info)
 		return ERR_PTR(-ENOMEM);
 
-	result = hcas_lookup_object(sb->s_fs_info, hcas_object_name,
-				    &info->path);
+	result = hcasfs_lookup_object(sb, hcas_object_name,
+				      &info->path);
 	if (result) {
 		kfree(info);
 		return ERR_PTR(result);
@@ -69,7 +70,8 @@ struct buffered_file *hcasfs_inode_buffered_file(struct inode *inode)
 	struct hcasfs_inode_info *info = inode->i_private;
 
 	if (!info->bf) {
-		file = dentry_open(&info->path, O_RDONLY, current_cred());
+		// TODO: Take on mount creds?
+		file = dentry_open(&info->path, O_RDONLY, hcasfs_creds(inode->i_sb));
 		if (IS_ERR(file))
 			return ERR_PTR(PTR_ERR(file));
 
@@ -170,7 +172,7 @@ static struct inode *_lookup_at_position(struct inode *dir,
 
 	// TODO: May need to only read object name for nodes with objects in the
 	// future.
-	inode = hcas_new_inode(dir->i_sb, data + 52);
+	inode = hcasfs_new_inode(dir->i_sb, data + 52);
 	if (IS_ERR(inode))
 		return ERR_PTR(PTR_ERR(inode));
 

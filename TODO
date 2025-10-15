@@ -1,0 +1,48 @@
+Storage:
+- Directory binary layout could be improved
+  - Small directories (e.g. that fit in one block) could be loaded into memory
+    and don't require a lookup table.
+  - Lookup table can't use CRC in practice as its too exploitable
+  - Lookup tree can be statically optimized since full contents are known at
+    construction. See perfect hashing for ideas.
+- Small files (<= 32 bytes) can be encoded directly in their inode.
+  - Would replace the content name. Need bit to signal this.
+  - Means some extra work for kernel module
+  - Could signal empty directories similarly. Non-empty directories would never be
+    small enough.
+
+Exiting Tools:
+- Importing container images is slow.
+  - Is sqlite too slow in general?
+  - Okay if we need to take full write locks to make this happen.
+- Should be able to import images direct from layer tarballs
+  - Importer would need to understand whiteouts
+
+Image Commit:
+- Need a tool to take a rootfs object and an overlay upper layer and produce a
+  new object for the merged. Akin to 'docker commit'
+
+'Registry'
+- Need logic to transfer object hierarchies between data stores
+  - Research what rsync does
+- Intuition here is that we can quickly identify which objects need transfer and
+  that minor changes to build layers (e.g. installed one additional package)
+  mean quick transfers.
+
+Kernel:
+- Make sure all file operations use the right creds
+- Some internal data structures require locking still
+- Could optimize behavior on small directories
+- Could potentially cache inode data between inodes with the same content
+  address. Might not be common enough for the extra effort.
+
+Caveats:
+- hcasfs does not support hard links. neither does overlay (at least, hard links
+  in the lower layers) so this is fine.
+
+Testing:
+- Need better performance tests
+- Are there existing container benchmarking tools out there? Main caveat is that
+  we're mostly interested in read-heavy workloads from the image.
+- Once we have registry component working we'd want performance testing there.
+- Need import performance testing (currently import is way too slow).

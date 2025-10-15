@@ -13,10 +13,10 @@
 struct hcasfs_sb_info {
 	struct path hcas_data_dir;
 	char root_object_name[HCASFS_OBJECT_NAME_LEN];
-	struct cred *creator_cred;
+	const struct cred *creator_cred;
 };
 
-struct cred *hcasfs_creds(struct super_block *sb)
+const struct cred *hcasfs_creds(struct super_block *sb)
 {
 	struct hcasfs_sb_info *sb_info = sb->s_fs_info;
 
@@ -57,12 +57,14 @@ static int hcas_parse_hex_name(char *hex_name,
 	return 0;
 }
 
+enum hcasfs_param { Opt_root_object, Opt_err };
+
 static const match_table_t hcasfs_tokens = { { Opt_root_object,
 					       "root_object=%s" },
 					     { Opt_err, NULL } };
 
 /* Parse mount options */
-int hcasfs_parse_options(char *options, struct hcasfs_sb_info *sbi)
+static int hcasfs_parse_options(char *options, struct hcasfs_sb_info *sbi)
 {
 	char *p;
 	substring_t args[MAX_OPT_ARGS];
@@ -119,7 +121,7 @@ int hcasfs_parse_options(char *options, struct hcasfs_sb_info *sbi)
 }
 
 /* Free superblock private data */
-void hcasfs_free_sb_info(struct hcasfs_sb_info *sbi)
+static void hcasfs_free_sb_info(struct hcasfs_sb_info *sbi)
 {
 	if (sbi) {
 		path_put(&sbi->hcas_data_dir);
@@ -130,7 +132,7 @@ void hcasfs_free_sb_info(struct hcasfs_sb_info *sbi)
 }
 
 /* Put superblock - cleanup private data */
-void hcasfs_put_super(struct super_block *sb)
+static void hcasfs_put_super(struct super_block *sb)
 {
 	printk(KERN_INFO "hcasfs: Releasing superblock\n");
 	hcasfs_free_sb_info(sb->s_fs_info);
@@ -138,7 +140,7 @@ void hcasfs_put_super(struct super_block *sb)
 }
 
 /* Superblock operations */
-const struct super_operations hcasfs_sops = {
+static const struct super_operations hcasfs_sops = {
 	.statfs = simple_statfs,
 	.put_super = hcasfs_put_super,
 	.evict_inode = hcasfs_inode_evict,
@@ -170,7 +172,7 @@ int hcasfs_fill_super(struct super_block *sb, void *data, int silent)
 	       sizeof(struct path));
 	path_get(&sbi->hcas_data_dir);
 
-	sbi->creator_cred = prepare_creds();
+	sbi->creator_cred = get_cred(current_cred());
 	if (!sbi->creator_cred) {
 		hcasfs_free_sb_info(sbi);
 		return -ENOMEM;
@@ -195,7 +197,7 @@ int hcasfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_flags = SB_RDONLY;
 
 	/* Create root inode */
-	root_inode = hcas_new_inode(sb, sbi->root_object_name);
+	root_inode = hcasfs_new_inode(sb, sbi->root_object_name);
 	if (IS_ERR(root_inode)) {
 		printk(KERN_ERR "hcasfs: Failed to allocate root inode\n");
 		return PTR_ERR(root_inode);
@@ -236,10 +238,7 @@ static void hcas_build_object_path(char *path_buf,
 {
 	path_buf[2] = '/';
 	for (int i = 0; i < HCASFS_OBJECT_NAME_LEN; i++) {
-		int offset = 2 * i;
-
-		if (i)
-			offset++;
+		int offset = 2 * i + (i ? 1 : 0);
 
 		path_buf[offset + 0] =
 			hcas_nibble_to_hex_digit((obj_name[i] >> 4) & 0xf);
@@ -249,17 +248,20 @@ static void hcas_build_object_path(char *path_buf,
 	path_buf[1 + HCASFS_OBJECT_NAME_LEN * 2] = 0;
 }
 
-int hcas_lookup_object(struct hcasfs_sb_info *sbi,
-		       char obj_name[HCASFS_OBJECT_NAME_LEN], struct path *out)
+int hcasfs_lookup_object(struct super_block *sb,
+		         char obj_name[HCASFS_OBJECT_NAME_LEN], struct path *out)
 {
 	char rel_path[HCASFS_MAX_OBJECT_PATH_LEN];
+	struct hcasfs_sb_info *sbi = sb->s_fs_info;
+	const struct cred *old_cred;
+	int result;
 
 	hcas_build_object_path(rel_path, obj_name);
 
-	printk(KERN_INFO "hcas lookup %s %p %p\n", rel_path, sbi,
-	       sbi->hcas_data_dir.dentry);
-
-	return vfs_path_lookup(sbi->hcas_data_dir.dentry,
-			       sbi->hcas_data_dir.mnt, rel_path, LOOKUP_FOLLOW,
-			       out);
+	old_cred = override_creds(sbi->creator_cred);
+	result = vfs_path_lookup(sbi->hcas_data_dir.dentry,
+				 sbi->hcas_data_dir.mnt, rel_path, LOOKUP_FOLLOW,
+				 out);
+	revert_creds(old_cred);
+	return result;
 }
